@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAGI // AI-Powered Editorial Board</title>
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Google Fonts: monospace technical typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://openrouter.ai; img-src 'self' data:;">
+
+    <!-- CDN Libraries (with Subresource Integrity) -->
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js"
+            integrity="sha384-t9eMqh3OtJXZhvLtmol8r2+23t6vg1GDo1UeyP55BEQdCI67GW2u8Nso+Yzo5m9r"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.min.js"
+            integrity="sha384-SAoDFM3HSSaC34opwWUdKSTdo7x9T89qtxNOmOzAA+Uwh1x7+dZacEGbw/TKF2cT"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@17.0.0/lib/marked.umd.js"
+            integrity="sha384-iTfbA9LOFld7BqURXcPlMPCq7KtgmPOXfYbanYK9OskkvvdlJZ5DWXZDTAYIjbmD"
+            crossorigin="anonymous"></script>
+
+    <!-- Fallback for browsers that don't support ES modules -->
+    <script nomodule>
+        document.body.innerHTML = '<div style="padding:2rem;font-family:monospace;color:#cc0000;background:#111;min-height:100vh;">' +
+            '<h1>Browser Not Supported</h1>' +
+            '<p>MAGI requires a modern browser (Chrome 61+, Firefox 60+, Safari 11+, Edge 79+).</p>' +
+            '<p>Please update your browser to use this tool.</p></div>';
+    </script>
+</head>
+<body>
+
+    <!-- Animated scan lines overlay -->
+    <div class="scanlines"></div>
+
+    <!-- ===== HEADER: NERV-style command bar ===== -->
+    <header id="app-header">
+        <div class="header-left">
+            <div class="nerv-logo">MAGI</div>
+            <div class="header-title">
+                <h1>AI-POWERED EDITORIAL BOARD</h1>
+                <p class="header-sub">MULTI-MODEL ANALYSIS SYSTEM v1.0</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="system-status">
+                <span class="status-dot"></span>
+                <span id="header-status">STANDBY</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Step indicator: NERV-style phase display -->
+    <nav id="step-indicator" aria-label="Progress steps">
+        <div class="step active" data-step="1" role="listitem" aria-current="step">
+            <span class="step-num">01</span>
+            <span class="step-label">CONNECT</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="2">
+            <span class="step-num">02</span>
+            <span class="step-label">INPUT</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="3">
+            <span class="step-num">03</span>
+            <span class="step-label">BOARD</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="4">
+            <span class="step-num">04</span>
+            <span class="step-label">ENGAGE</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step" data-step="5">
+            <span class="step-num">05</span>
+            <span class="step-label">REPORT</span>
+        </div>
+    </nav>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <main id="app-main" role="main">
+
+        <!-- ==================== SCREEN 1: API KEY ==================== -->
+        <section id="screen-apikey" class="screen active">
+            <div class="screen-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-tag">SYS.AUTH</span>
+                        <h2>INITIALIZE CONNECTION</h2>
+                    </div>
+                    <div class="panel-body">
+                        <p class="panel-desc">
+                            Supply your <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter API key</a>
+                            to activate the editorial board. OpenRouter is a single API gateway to Claude, GPT-4, Gemini, and other models.
+                            A typical board run costs $0.10&ndash;$0.50 in API credits. Your key stays in your browser and is never sent to us.
+                        </p>
+
+                        <div class="form-group">
+                            <label for="api-key-input">API KEY</label>
+                            <div class="input-row">
+                                <input type="password" id="api-key-input"
+                                       placeholder="sk-or-v1-..."
+                                       autocomplete="off" spellcheck="false">
+                                                <button id="toggle-key-visibility" class="btn-icon" title="Show/hide key" aria-label="Toggle API key visibility">&#9678;</button>
+                            </div>
+                        </div>
+
+                        <div class="button-row">
+                            <button id="validate-btn" class="btn-primary">VALIDATE &amp; CONNECT</button>
+                            <button id="clear-key-btn" class="btn-secondary" style="display: none;">CLEAR KEY</button>
+                        </div>
+                        <div id="key-status" class="status-area" aria-live="polite"></div>
+                        <button id="goto-article-btn" class="btn-primary btn-next" style="display: none;">
+                            PROCEED TO INPUT &raquo;
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== SCREEN 2: ARTICLE INPUT ==================== -->
+        <section id="screen-article" class="screen">
+            <div class="screen-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-tag">DATA.IN</span>
+                        <h2>ARTICLE SUBMISSION</h2>
+                    </div>
+                    <div class="panel-body">
+                        <p class="panel-desc">
+                            Upload a document or paste the article text for editorial board analysis.
+                        </p>
+
+                        <div class="tab-bar">
+                            <button class="tab active" data-tab="upload">UPLOAD FILE</button>
+                            <button class="tab" data-tab="paste">PASTE TEXT</button>
+                        </div>
+
+                        <div id="tab-upload" class="tab-content active">
+                            <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop zone for uploading .docx or .pdf files">
+                                <div class="drop-zone-icon" aria-hidden="true">&#9651;</div>
+                                <p class="drop-zone-text">DROP .docx OR .pdf HERE</p>
+                                <p class="drop-zone-subtext">or click to browse</p>
+                                <label class="btn-secondary file-label">
+                                    SELECT FILE
+                                    <input type="file" id="file-input" accept=".docx,.pdf" hidden aria-label="Select a .docx or .pdf file">
+                                </label>
+                            </div>
+                            <div id="file-info" class="file-info" style="display: none;"></div>
+                        </div>
+
+                        <div id="tab-paste" class="tab-content">
+                            <textarea id="paste-area"
+                                      placeholder="Paste full article text..."
+                                      rows="12"
+                                      aria-label="Paste article text here"></textarea>
+                            <div id="char-count" class="char-count">0 characters</div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="article-title">ARTICLE DESIGNATION (optional)</label>
+                            <input type="text" id="article-title" placeholder="e.g. Investigation into City Hall Spending">
+                        </div>
+
+                        <div id="article-preview" class="preview-area" style="display: none;">
+                            <h3>// TEXT PREVIEW</h3>
+                            <div id="preview-text"></div>
+                        </div>
+
+                        <div id="article-status" class="status-area" aria-live="polite"></div>
+
+                        <div class="button-row">
+                            <button id="back-to-key-btn" class="btn-secondary">&laquo; BACK</button>
+                            <button id="analyze-btn" class="btn-primary">ANALYZE ARTICLE &raquo;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== SCREEN 3: BOARD CONFIGURATION ==================== -->
+        <section id="screen-board" class="screen">
+            <div class="screen-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-tag">BOARD.CFG</span>
+                        <h2>EDITORIAL BOARD CONSTITUTION</h2>
+                    </div>
+                    <div class="panel-body">
+                        <p class="panel-desc">
+                            AI-recommended board members. Edit roles, stances, or models before engaging.
+                        </p>
+
+                        <div id="board-loading" class="loading-area">
+                            <div class="spinner"></div>
+                            <p>ANALYZING ARTICLE // ASSEMBLING BOARD...</p>
+                        </div>
+
+                        <div id="persona-container" style="display: none;"></div>
+
+                        <button id="add-persona-btn" class="btn-secondary" style="display: none;">
+                            + ADD UNIT
+                        </button>
+
+                        <div id="board-validation" class="status-area" aria-live="polite"></div>
+
+                        <div class="button-row" id="board-buttons" style="display: none;">
+                            <button id="back-to-article-btn" class="btn-secondary">&laquo; BACK</button>
+                            <button id="start-debate-btn" class="btn-primary btn-engage">ENGAGE BOARD &raquo;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== SCREEN 4: DEBATE ==================== -->
+        <section id="screen-debate" class="screen">
+            <div class="chat-header">
+                <div class="chat-header-content">
+                    <span class="panel-tag">LIVE.FEED</span>
+                    <h2 id="chat-title">EDITORIAL BOARD</h2>
+                    <p id="chat-subtitle" class="chat-subtitle">REVIEWING ARTICLE...</p>
+                </div>
+            </div>
+
+            <div id="chat-container" class="chat-container" role="log" aria-label="Editorial board debate messages" aria-live="polite">
+                <div id="chat-messages" class="chat-messages"></div>
+                <div id="typing-indicator" class="typing-indicator" style="display: none;">
+                    <span id="typing-name" class="typing-name"></span>
+                    <span class="typing-dots">
+                        <span></span><span></span><span></span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="chat-bottom-bar">
+                <div id="debate-status" class="status-area" aria-live="polite"></div>
+                <button id="generate-report-btn" class="btn-primary" style="display: none;">
+                    GENERATE REPORT &raquo;
+                </button>
+            </div>
+        </section>
+
+        <!-- ==================== SCREEN 5: REPORT ==================== -->
+        <section id="screen-report" class="screen">
+            <div class="screen-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-tag">RPT.OUT</span>
+                        <h2>EDITORIAL BOARD REPORT</h2>
+                    </div>
+                    <div class="panel-body">
+
+                        <div id="report-loading" class="loading-area">
+                            <div class="spinner"></div>
+                            <p>SYNTHESIZING BOARD FINDINGS...</p>
+                        </div>
+
+                        <div id="report-content" class="report-content" style="display: none;"></div>
+
+                        <div id="report-actions" class="report-actions" style="display: none;">
+                            <div class="export-row">
+                                <button id="download-md-btn" class="btn-secondary">DOWNLOAD .MD</button>
+                                <button id="download-json-btn" class="btn-secondary">DOWNLOAD .JSON</button>
+                                <button id="download-csv-btn" class="btn-primary">DOWNLOAD .CSV</button>
+                            </div>
+
+                            <div class="data-donation">
+                                <div class="donation-text">
+                                    <p>Hi! Thanks for trying my editorial board &mdash; it's just an experiment, and to improve it I need your help! If you can send me your CSV export, I'd be so grateful.</p>
+                                </div>
+                                <button id="email-csv-btn" class="btn-donate">
+                                    SEND CSV VIA GMAIL &rarr;
+                                </button>
+                            </div>
+
+                            <div class="new-review-row">
+                                <button id="new-review-btn" class="btn-secondary">NEW REVIEW</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer id="app-footer">
+        <span>MAGI: an AI-powered editorial board. Created by Areeba Fatima</span>
+        <p class="privacy-note">Your data stays in your browser. Articles and API keys are never sent to us &mdash; only directly to OpenRouter for AI processing.</p>
+    </footer>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
