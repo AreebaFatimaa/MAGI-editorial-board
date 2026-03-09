@@ -33,7 +33,7 @@ function initPdfWorker() {
     if (pdfWorkerInitialized) return;
     if (typeof pdfjsLib !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
         pdfjsLib.GlobalWorkerOptions.workerSrc =
-            'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.min.js';
+            'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js';
         pdfWorkerInitialized = true;
     }
 }
