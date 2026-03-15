@@ -132,7 +132,7 @@ a:hover {
 
 .header-sub {
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     letter-spacing: 0.1em;
 }
@@ -147,7 +147,7 @@ a:hover {
     align-items: center;
     gap: 0.5rem;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--neon-green);
     letter-spacing: 0.1em;
 }
@@ -190,7 +190,7 @@ a:hover {
 
 .step-num {
     font-family: var(--font-display);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
     color: var(--text-dim);
     transition: color 0.3s;
@@ -198,7 +198,7 @@ a:hover {
 
 .step-label {
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     letter-spacing: 0.1em;
     transition: color 0.3s;
@@ -280,7 +280,7 @@ a:hover {
 
 .panel-tag {
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--neon-orange);
     background: rgba(255, 102, 0, 0.1);
     padding: 0.125rem 0.5rem;
@@ -316,7 +316,7 @@ a:hover {
 .form-group label {
     display: block;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 400;
     color: var(--neon-green-dim);
     letter-spacing: 0.1em;
@@ -377,7 +377,7 @@ select option, select optgroup {
     padding: 0.625rem 1.5rem;
     border-radius: 0;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 400;
     letter-spacing: 0.1em;
     cursor: pointer;
@@ -402,7 +402,7 @@ select option, select optgroup {
     padding: 0.625rem 1.5rem;
     border-radius: 0;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     letter-spacing: 0.1em;
     cursor: pointer;
     transition: all 0.2s;
@@ -444,7 +444,7 @@ select option, select optgroup {
     padding: 0.625rem 1.5rem;
     border-radius: 0;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     letter-spacing: 0.1em;
     cursor: pointer;
     transition: all 0.2s;
@@ -468,7 +468,7 @@ select option, select optgroup {
     margin-top: 1rem;
     padding: 0.75rem;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     min-height: 1rem;
     letter-spacing: 0.05em;
 }
@@ -529,7 +529,7 @@ select option, select optgroup {
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     cursor: pointer;
     letter-spacing: 0.1em;
@@ -575,7 +575,7 @@ select option, select optgroup {
     letter-spacing: 0.05em;
 }
 .drop-zone-subtext {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     margin: 0.5rem 0 0.75rem;
 }
@@ -588,7 +588,7 @@ select option, select optgroup {
     border: 1px solid rgba(0, 255, 65, 0.2);
     margin-top: 0.75rem;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--neon-green);
 }
 
@@ -602,14 +602,14 @@ select option, select optgroup {
 }
 .preview-area h3 {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--neon-orange);
     letter-spacing: 0.1em;
     margin-bottom: 0.5rem;
 }
 #preview-text {
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: var(--text-primary);
     white-space: pre-wrap;
     max-height: 200px;
@@ -649,7 +649,7 @@ select option, select optgroup {
 
 .persona-number {
     font-family: var(--font-display);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 700;
     color: var(--neon-orange);
     border: 1px solid var(--neon-orange-dim);
@@ -675,7 +675,7 @@ select option, select optgroup {
     color: var(--neon-red);
     padding: 0.375rem 0.75rem;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     cursor: pointer;
     flex-shrink: 0;
     letter-spacing: 0.05em;
@@ -695,7 +695,7 @@ select option, select optgroup {
 }
 .persona-fields label {
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--neon-green-dim);
     letter-spacing: 0.1em;
     display: block;
@@ -703,7 +703,7 @@ select option, select optgroup {
 .persona-fields select,
 .persona-fields textarea {
     margin-top: 0.25rem;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
 }
 .persona-fields .full-width {
     grid-column: 1 / -1;
@@ -728,7 +728,7 @@ select option, select optgroup {
 }
 .chat-subtitle {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     letter-spacing: 0.1em;
     margin-top: 0.125rem;
@@ -776,7 +776,7 @@ select option, select optgroup {
 
 .bubble-header {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     font-weight: 400;
     margin-bottom: 0.5rem;
     letter-spacing: 0.05em;
@@ -796,7 +796,7 @@ select option, select optgroup {
 
 .bubble-time {
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     text-align: right;
     margin-top: 0.375rem;
@@ -804,7 +804,7 @@ select option, select optgroup {
 
 .bubble-model {
     font-family: var(--font-mono);
-    font-size: 0.625rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     margin-top: 0.125rem;
 }
@@ -849,7 +849,7 @@ select option, select optgroup {
     background: rgba(0, 255, 65, 0.03);
     border: 1px solid rgba(0, 255, 65, 0.1);
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--neon-green-dim);
     align-self: center;
     max-width: 80%;
@@ -866,7 +866,7 @@ select option, select optgroup {
 
 .typing-name {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-secondary);
     letter-spacing: 0.05em;
 }
@@ -938,7 +938,7 @@ select option, select optgroup {
     background: rgba(0, 255, 65, 0.05);
     color: var(--neon-green);
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     letter-spacing: 0.05em;
 }
 
@@ -980,7 +980,7 @@ select option, select optgroup {
 
 .char-count {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     text-align: right;
     margin-top: 0.375rem;
@@ -996,14 +996,14 @@ select option, select optgroup {
     text-align: center;
     padding: 1rem;
     font-family: var(--font-mono);
-    font-size: 0.6875rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     letter-spacing: 0.15em;
     border-top: 1px solid var(--border);
 }
 .privacy-note {
     margin-top: 0.375rem;
-    font-size: 0.625rem;
+    font-size: 0.875rem;
     color: var(--text-dim);
     opacity: 0.7;
 }
