@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAGI // Debug Console</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { padding: 1rem 2rem; }
+        .debug-header { margin-bottom: 2rem; }
+        .debug-header h1 {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            color: var(--neon-orange);
+            letter-spacing: 0.2em;
+        }
+        .debug-header p {
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+        .import-section {
+            border: 1px dashed var(--border-accent);
+            padding: 1.5rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            cursor: pointer;
+        }
+        .import-section:hover {
+            border-color: var(--neon-green);
+            background: var(--neon-green-subtle);
+        }
+        .import-section label {
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--neon-green);
+            cursor: pointer;
+            display: block;
+        }
+        .import-section input { display: none; }
+        .import-section .sub {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            margin-top: 0.5rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+        }
+        th {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            color: var(--neon-green);
+            border-bottom: 1px solid var(--neon-green);
+            font-weight: 400;
+            letter-spacing: 0.05em;
+        }
+        td {
+            padding: 0.5rem 0.75rem;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-accent);
+        }
+        .section-title {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--neon-orange);
+            letter-spacing: 0.1em;
+            margin: 1.5rem 0 0.75rem;
+            padding-bottom: 0.375rem;
+            border-bottom: 1px solid var(--neon-orange-dim);
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .summary-card {
+            border: 1px solid var(--border-accent);
+            padding: 1rem;
+            background: var(--bg-panel);
+        }
+        .summary-card .label {
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+        }
+        .summary-card .value {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            color: var(--neon-green);
+            margin-top: 0.25rem;
+        }
+        .summary-card .value.cost { color: var(--neon-orange); }
+        .summary-card .value.error { color: var(--neon-red); }
+        .persona-response {
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            background: var(--bg-input);
+            padding: 0.75rem;
+            border: 1px solid var(--border-accent);
+            margin-top: 0.5rem;
+        }
+        .error-list {
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--neon-red);
+        }
+        .error-list li { margin-bottom: 0.375rem; }
+        #content { display: none; }
+        .verdict-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border: 1px solid;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            letter-spacing: 0.1em;
+        }
+        .verdict-publish { color: var(--neon-green); border-color: var(--neon-green); }
+        .verdict-hold { color: var(--neon-orange); border-color: var(--neon-orange); }
+        .verdict-kill { color: var(--neon-red); border-color: var(--neon-red); }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <div class="debug-header">
+        <h1>MAGI // DEBUG CONSOLE</h1>
+        <p>Import a session JSON to inspect full diagnostics</p>
+    </div>
+
+    <div class="import-section" id="import-zone">
+        <label for="file-import">
+            DROP SESSION JSON HERE OR CLICK TO IMPORT
+            <input type="file" id="file-import" accept=".json">
+        </label>
+        <div class="sub">Accepts .json files exported from the editorial board</div>
+    </div>
+
+    <div id="content">
+        <!-- Summary Cards -->
+        <div class="section-title">SESSION OVERVIEW</div>
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="label">SESSION ID</div>
+                <div class="value" id="s-id">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">CREATED</div>
+                <div class="value" id="s-created">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">KEY SOURCE</div>
+                <div class="value" id="s-key">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">BOARD SIZE</div>
+                <div class="value" id="s-board">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">TOTAL TOKENS</div>
+                <div class="value" id="s-tokens">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">TOTAL COST</div>
+                <div class="value cost" id="s-cost">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">TOTAL LATENCY</div>
+                <div class="value" id="s-latency">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">VERDICT</div>
+                <div class="value" id="s-verdict">—</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">ERRORS</div>
+                <div class="value error" id="s-errors">—</div>
+            </div>
+        </div>
+
+        <!-- Step Timing -->
+        <div class="section-title">STEP TIMING</div>
+        <table id="step-table">
+            <thead>
+                <tr><th>Step</th><th>Entered</th><th>Completed</th><th>Duration</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <!-- Article -->
+        <div class="section-title">ARTICLE</div>
+        <div id="article-info" style="font-family:var(--font-mono);font-size:0.875rem;color:var(--text-primary);"></div>
+
+        <!-- Persona Breakdown -->
+        <div class="section-title">PERSONA BREAKDOWN</div>
+        <table id="persona-table">
+            <thead>
+                <tr><th>#</th><th>Role</th><th>Stance</th><th>Model</th><th>Prompt Tok</th><th>Compl Tok</th><th>Latency</th><th>Cost</th><th>Error</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <!-- Persona Responses -->
+        <div class="section-title">FULL PERSONA RESPONSES</div>
+        <div id="persona-responses"></div>
+
+        <!-- Report -->
+        <div class="section-title">SYNTHESIZED REPORT</div>
+        <div id="report-text" class="persona-response" style="max-height:400px;"></div>
+
+        <!-- Errors -->
+        <div class="section-title">ERROR LOG</div>
+        <ul class="error-list" id="error-list"></ul>
+
+        <!-- Raw JSON -->
+        <div class="section-title">RAW SESSION JSON</div>
+        <details>
+            <summary style="font-family:var(--font-mono);font-size:0.875rem;color:var(--neon-green);cursor:pointer;">Click to expand</summary>
+            <pre id="raw-json" style="white-space:pre-wrap;font-size:0.875rem;color:var(--text-secondary);max-height:400px;overflow-y:auto;margin-top:0.5rem;"></pre>
+        </details>
+    </div>
+
+    <script>
+        const importZone = document.getElementById('import-zone');
+        const fileInput = document.getElementById('file-import');
+
+        importZone.addEventListener('click', () => fileInput.click());
+        importZone.addEventListener('dragover', e => { e.preventDefault(); importZone.style.borderColor = 'var(--neon-green)'; });
+        importZone.addEventListener('dragleave', () => { importZone.style.borderColor = ''; });
+        importZone.addEventListener('drop', e => {
+            e.preventDefault();
+            importZone.style.borderColor = '';
+            if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files[0]) loadFile(fileInput.files[0]);
+        });
+
+        function loadFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const session = JSON.parse(e.target.result);
+                    renderSession(session);
+                } catch (err) {
+                    alert('Failed to parse JSON: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function renderSession(s) {
+            document.getElementById('content').style.display = 'block';
+            importZone.style.display = 'none';
+
+            // Summary
+            document.getElementById('s-id').textContent = s.session_id?.substring(0, 8) || '?';
+            document.getElementById('s-created').textContent = s.created_at ? new Date(s.created_at).toLocaleString() : '?';
+            document.getElementById('s-key').textContent = s.steps?.[1]?.key_source || '?';
+            document.getElementById('s-board').textContent = s.personas?.length || s.debate_results?.length || '?';
+
+            const t = s.totals || {};
+            document.getElementById('s-tokens').textContent = ((t.prompt_tokens || 0) + (t.completion_tokens || 0)).toLocaleString();
+            document.getElementById('s-cost').textContent = '$' + (t.total_cost || 0).toFixed(4);
+            document.getElementById('s-latency').textContent = ((t.total_latency_ms || 0) / 1000).toFixed(1) + 's';
+            document.getElementById('s-verdict').textContent = s.report?.verdict || '—';
+
+            const verdictEl = document.getElementById('s-verdict');
+            const v = (s.report?.verdict || '').toUpperCase();
+            if (v.includes('PUBLISH') && !v.includes('HOLD')) verdictEl.className = 'value verdict-badge verdict-publish';
+            else if (v.includes('HOLD')) verdictEl.className = 'value verdict-badge verdict-hold';
+            else if (v.includes('KILL')) verdictEl.className = 'value verdict-badge verdict-kill';
+
+            document.getElementById('s-errors').textContent = s.errors?.length || 0;
+
+            // Step timing
+            const stepNames = { 1: 'CONNECT', 2: 'INPUT', 3: 'BOARD', 4: 'DEBATE', 5: 'REPORT' };
+            const stepBody = document.querySelector('#step-table tbody');
+            stepBody.innerHTML = '';
+            for (let i = 1; i <= 5; i++) {
+                const step = s.steps?.[i];
+                const entered = step?.entered_at ? new Date(step.entered_at).toLocaleTimeString() : '—';
+                const completed = step?.completed_at ? new Date(step.completed_at).toLocaleTimeString() : '—';
+                let duration = '—';
+                if (step?.entered_at && step?.completed_at) {
+                    duration = ((new Date(step.completed_at) - new Date(step.entered_at)) / 1000).toFixed(1) + 's';
+                }
+                stepBody.innerHTML += `<tr><td>${i}. ${stepNames[i]}</td><td>${entered}</td><td>${completed}</td><td>${duration}</td></tr>`;
+            }
+
+            // Article
+            const articleInfo = document.getElementById('article-info');
+            articleInfo.innerHTML = `<strong style="color:var(--text-bright);">${esc(s.article?.title || 'Untitled')}</strong><br>` +
+                `${(s.article?.char_count || 0).toLocaleString()} characters`;
+
+            // Persona table
+            const personaBody = document.querySelector('#persona-table tbody');
+            personaBody.innerHTML = '';
+            const debates = s.debate_results || [];
+            const debateCalls = s.steps?.[4]?.debate_calls || [];
+            debates.forEach((dr, i) => {
+                const p = dr.persona || s.personas?.[i] || {};
+                const cm = dr.call_meta || debateCalls[i] || {};
+                personaBody.innerHTML += `<tr>
+                    <td>${i + 1}</td>
+                    <td>${esc(p.role || '?')}</td>
+                    <td>${esc(p.stance || '?')}</td>
+                    <td>${esc((p.model || '?').split('/').pop())}</td>
+                    <td>${cm.prompt_tokens || 0}</td>
+                    <td>${cm.completion_tokens || 0}</td>
+                    <td>${cm.latency_ms ? (cm.latency_ms / 1000).toFixed(1) + 's' : '—'}</td>
+                    <td>$${(cm.cost_usd || 0).toFixed(4)}</td>
+                    <td style="color:${cm.error ? 'var(--neon-red)' : 'var(--neon-green)'}">${cm.error || 'OK'}</td>
+                </tr>`;
+            });
+
+            // Persona responses
+            const responsesDiv = document.getElementById('persona-responses');
+            responsesDiv.innerHTML = '';
+            debates.forEach((dr, i) => {
+                const p = dr.persona || s.personas?.[i] || {};
+                const container = document.createElement('div');
+                container.style.marginBottom = '1rem';
+                container.innerHTML = `<div style="font-family:var(--font-mono);font-size:0.875rem;color:var(--neon-green);margin-bottom:0.25rem;">
+                    #${i + 1} @${esc(p.role || '?')} [${esc(p.stance || '?')}] via ${esc(p.model || '?')}
+                </div>`;
+                const pre = document.createElement('div');
+                pre.className = 'persona-response';
+                pre.textContent = dr.response || '[No response]';
+                container.appendChild(pre);
+                responsesDiv.appendChild(container);
+            });
+
+            // Report
+            document.getElementById('report-text').textContent = s.report?.markdown || '[No report]';
+
+            // Errors
+            const errorList = document.getElementById('error-list');
+            errorList.innerHTML = '';
+            (s.errors || []).forEach(e => {
+                errorList.innerHTML += `<li>Step ${e.step}: ${esc(e.message)} ${e.model ? '(' + esc(e.model) + ')' : ''} @ ${e.timestamp || '?'}</li>`;
+            });
+            if ((s.errors || []).length === 0) {
+                errorList.innerHTML = '<li style="color:var(--neon-green);">No errors</li>';
+            }
+
+            // Raw JSON
+            document.getElementById('raw-json').textContent = JSON.stringify(s, null, 2);
+        }
+
+        function esc(str) {
+            const div = document.createElement('div');
+            div.textContent = str || '';
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

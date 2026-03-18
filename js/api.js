@@ -244,6 +244,7 @@ export async function validateKeyAndFetchModels() {
  */
 export async function chatCompletion(model, messages, options = {}) {
     const controller = createTimeoutController(options.timeoutMs);
+    const startTime = Date.now();
 
     const response = await fetch(`${BASE_URL}/chat/completions`, {
         method: 'POST',
@@ -272,7 +273,13 @@ export async function chatCompletion(model, messages, options = {}) {
         throw new Error('Empty response from model. The model may be overloaded - try again.');
     }
 
-    return content;
+    // Return content + metadata for state tracking
+    return {
+        content,
+        usage: data.usage || {},
+        model: data.model || model,
+        latency_ms: Date.now() - startTime,
+    };
 }
 
 // =============================================================================
@@ -304,10 +311,16 @@ export async function chatCompletion(model, messages, options = {}) {
  *   - onToken(string): called with each text chunk as it arrives
  *   - onDone(): called when stream completes
  *   - onError(Error): called if an error occurs
+ *   - onMeta({usage, model, latency_ms}): called when stream completes with metadata
  * @param {Object} options - Optional: { temperature, max_tokens }
  */
-export async function streamChatCompletion(model, messages, { onToken, onDone, onError, ...options }) {
+export async function streamChatCompletion(model, messages, { onToken, onDone, onError, onMeta, ...options }) {
     const controller = createTimeoutController(options.timeoutMs || 300_000); // 5min for streaming
+    const startTime = Date.now();
+
+    // Accumulate usage data from streaming chunks
+    let streamUsage = null;
+    let streamModel = model;
 
     try {
         const response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -318,6 +331,7 @@ export async function streamChatCompletion(model, messages, { onToken, onDone, o
                 model,
                 messages,
                 stream: true,    // This enables streaming
+                stream_options: { include_usage: true }, // Request usage in stream
                 temperature: options.temperature ?? 0.7,
                 ...(options.max_tokens && { max_tokens: options.max_tokens }),
             }),
@@ -357,6 +371,7 @@ export async function streamChatCompletion(model, messages, { onToken, onDone, o
             if (done) {
                 // Server closed the connection
                 activeControllers.delete(controller);
+                if (onMeta) onMeta({ usage: streamUsage, model: streamModel, latency_ms: Date.now() - startTime });
                 onDone();
                 return;
             }
@@ -389,6 +404,7 @@ export async function streamChatCompletion(model, messages, { onToken, onDone, o
                 // Check for the end-of-stream signal
                 if (jsonStr === '[DONE]') {
                     activeControllers.delete(controller);
+                    if (onMeta) onMeta({ usage: streamUsage, model: streamModel, latency_ms: Date.now() - startTime });
                     onDone();
                     return;
                 }
@@ -407,6 +423,16 @@ export async function streamChatCompletion(model, messages, { onToken, onDone, o
                 // Handle streaming error objects from OpenRouter
                 if (chunk.error) {
                     throw new Error(chunk.error.message || JSON.stringify(chunk.error));
+                }
+
+                // Capture usage data from final chunk (OpenRouter sends this
+                // in the last chunk when stream_options.include_usage is true)
+                if (chunk.usage) {
+                    streamUsage = chunk.usage;
+                }
+                // Capture the actual model used (may differ from requested)
+                if (chunk.model) {
+                    streamModel = chunk.model;
                 }
 
                 // In streaming, content arrives in choices[0].delta.content

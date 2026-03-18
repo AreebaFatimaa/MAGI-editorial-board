@@ -1035,7 +1035,7 @@ select option, select optgroup {
     .panel-body { padding: 1rem; }
     .report-content { padding: 1rem; }
     .nerv-logo { font-size: 1rem; padding: 0.15rem 0.4rem; }
-    .header-title h1 { font-size: 0.75rem; }
+    .header-title h1 { font-size: 0.875rem; }
     .export-row { flex-direction: column; }
 
     /* Minimum tap targets for mobile (44px per Apple/Google guidelines) */

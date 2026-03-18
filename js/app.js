@@ -15,6 +15,14 @@ import {
     downloadCsv, buildCsvExport,
     safeMarkdown
 } from './report.js';
+import { DEFAULT_API_KEY, SYNTHESIS_MODEL } from './config.js';
+import { sendAllTelemetry } from './telemetry.js';
+import {
+    createSession, recordStepEntry, recordStepCompletion,
+    recordCallMeta, recordError, startCallMeta, finishCallMeta, failCallMeta,
+    computeTotals, exportSession, hydrateSession, setPricingMap,
+    persistToLocalStorage, loadFromLocalStorage, clearLocalStorage
+} from './state.js';
 
 // =============================================================================
 // SHARED APPLICATION STATE
@@ -31,6 +39,8 @@ const appState = {
     debateResults: [],
     reportMarkdown: '',
     currentScreen: 1,
+    session: createSession(),
+    keySource: null, // 'default' or 'user'
 };
 
 const SCREEN_IDS = {
@@ -46,7 +56,6 @@ const SCREEN_IDS = {
 // =============================================================================
 
 function navigateTo(screenNum) {
-    // If leaving the debate or board generation screen mid-operation, abort pending API calls
     if ((appState.currentScreen === 4 || appState.currentScreen === 3) && screenNum < appState.currentScreen) {
         abortAllRequests();
     }
@@ -57,7 +66,6 @@ function navigateTo(screenNum) {
     const target = document.getElementById(targetId);
     if (target) target.classList.add('active');
 
-    // Update step indicator
     document.querySelectorAll('#step-indicator .step').forEach(stepEl => {
         const stepNum = parseInt(stepEl.dataset.step);
         stepEl.classList.remove('active', 'completed');
@@ -65,18 +73,17 @@ function navigateTo(screenNum) {
         else if (stepNum < screenNum) stepEl.classList.add('completed');
     });
 
-    // Update connectors
     document.querySelectorAll('#step-indicator .step-connector').forEach((conn, index) => {
         if (index + 2 <= screenNum) conn.classList.add('completed');
         else conn.classList.remove('completed');
     });
 
-    // Update header status
     const statusLabels = { 1: 'AUTHENTICATING', 2: 'DATA INPUT', 3: 'BOARD CONFIG', 4: 'LIVE DEBATE', 5: 'REPORT READY' };
     const headerStatus = document.getElementById('header-status');
     if (headerStatus) headerStatus.textContent = statusLabels[screenNum] || 'STANDBY';
 
     appState.currentScreen = screenNum;
+    recordStepEntry(appState.session, screenNum);
     window.scrollTo(0, 0);
 }
 
@@ -90,13 +97,20 @@ function setupScreen1() {
     const statusDiv = document.getElementById('key-status');
     const toggleBtn = document.getElementById('toggle-key-visibility');
     const nextBtn = document.getElementById('goto-article-btn');
-
     const clearBtn = document.getElementById('clear-key-btn');
 
+    // Check for saved user key first, then fall back to default
     const savedKey = getApiKey();
     if (savedKey) {
         keyInput.value = savedKey;
+        appState.keySource = 'user';
         clearBtn.style.display = 'inline-block';
+    } else if (DEFAULT_API_KEY && DEFAULT_API_KEY !== 'sk-or-v1-xxxxxxxxxxxx') {
+        keyInput.value = DEFAULT_API_KEY;
+        appState.keySource = 'default';
+        showStatus(statusDiv, 'USING COMMUNITY KEY // ENTER YOUR OWN KEY FOR UNLIMITED USE', 'info');
+        // Auto-validate the default key
+        setTimeout(() => validateBtn.click(), 300);
     }
 
     toggleBtn.addEventListener('click', () => {
@@ -108,6 +122,7 @@ function setupScreen1() {
         keyInput.value = '';
         clearBtn.style.display = 'none';
         nextBtn.style.display = 'none';
+        appState.keySource = null;
         showStatus(statusDiv, 'API KEY CLEARED FROM BROWSER', 'info');
     });
 
@@ -122,20 +137,41 @@ function setupScreen1() {
         validateBtn.disabled = true;
         setApiKey(key);
 
+        // Determine key source
+        if (key === DEFAULT_API_KEY) {
+            appState.keySource = 'default';
+        } else {
+            appState.keySource = 'user';
+        }
+
         try {
             const result = await validateKeyAndFetchModels();
             if (result.valid) {
                 appState.apiKey = key;
                 appState.availableModels = result.models;
                 appState.modelFamilies = result.families;
+
+                // Set pricing map for cost calculations
+                setPricingMap(result.models);
+
+                // Record in session
+                appState.session.steps[1].key_source = appState.keySource;
+                recordStepCompletion(appState.session, 1);
+
+                const keyLabel = appState.keySource === 'default' ? ' [COMMUNITY KEY]' : '';
                 showStatus(statusDiv,
-                    `CONNECTED // ${result.models.length} models // ${result.families.length} families: ${result.families.join(', ')}`,
+                    `CONNECTED${keyLabel} // ${result.models.length} models // ${result.families.length} families: ${result.families.join(', ')}`,
                     'success'
                 );
                 nextBtn.style.display = 'block';
                 clearBtn.style.display = 'inline-block';
             } else {
-                showStatus(statusDiv, `ERROR: ${result.error}`, 'error');
+                // Check for 402 (insufficient credits)
+                if (result.error && result.error.includes('credit')) {
+                    handleCreditExhausted(statusDiv, keyInput, validateBtn);
+                } else {
+                    showStatus(statusDiv, `ERROR: ${result.error}`, 'error');
+                }
             }
         } catch (err) {
             showStatus(statusDiv, `CONNECTION FAILED: ${err.message}`, 'error');
@@ -145,6 +181,22 @@ function setupScreen1() {
     });
 
     nextBtn.addEventListener('click', () => navigateTo(2));
+}
+
+/**
+ * Handle 402 / credit exhaustion. If using default key, prompt for user's own key.
+ */
+function handleCreditExhausted(statusDiv, keyInput, validateBtn) {
+    if (appState.keySource === 'default') {
+        showStatus(statusDiv,
+            'COMMUNITY KEY CREDITS EXHAUSTED FOR TODAY // ENTER YOUR OWN OPENROUTER KEY TO CONTINUE',
+            'error'
+        );
+        keyInput.value = '';
+        keyInput.focus();
+    } else {
+        showStatus(statusDiv, 'INSUFFICIENT CREDITS // ADD CREDITS AT openrouter.ai/credits', 'error');
+    }
 }
 
 // =============================================================================
@@ -208,7 +260,6 @@ function setupScreen2() {
         showStatus(statusDiv, '', '');
     }
 
-    // Live character count for paste area
     const charCount = document.getElementById('char-count');
     pasteArea.addEventListener('input', () => {
         const len = pasteArea.value.length;
@@ -247,6 +298,17 @@ function setupScreen2() {
 
             appState.articleText = text;
             appState.articleTitle = titleInput.value.trim() || 'Untitled Article';
+
+            // Record in session
+            appState.session.article = {
+                title: appState.articleTitle,
+                text: appState.articleText,
+                char_count: text.length,
+            };
+            appState.session.steps[2].article_chars = text.length;
+            appState.session.steps[2].article_source = file ? file.name.split('.').pop().toLowerCase() : 'paste';
+            recordStepCompletion(appState.session, 2);
+            persistToLocalStorage(appState.session);
 
             previewArea.style.display = 'block';
             const truncated = text.length > 500 ? text.substring(0, 500) + '...' : text;
@@ -291,6 +353,12 @@ function setupScreen3() {
         if (result.errors.length > 0) {
             showStatus(validationDiv, result.errors.join(' // '), 'info');
         }
+
+        // Record personas in session
+        appState.session.personas = appState.personas.map(p => ({ ...p }));
+        recordStepCompletion(appState.session, 3);
+        persistToLocalStorage(appState.session);
+
         navigateTo(4);
         startDebate();
     });
@@ -316,14 +384,31 @@ async function startBoardGeneration() {
     const addBtn = document.getElementById('add-persona-btn');
     const buttons = document.getElementById('board-buttons');
 
+    // If personas already exist (back-navigation), just render them
+    if (appState.personas.length > 0) {
+        loadingDiv.style.display = 'none';
+        container.style.display = 'block';
+        addBtn.style.display = 'block';
+        buttons.style.display = 'flex';
+        renderPersonaCards();
+        return;
+    }
+
     loadingDiv.style.display = 'block';
     container.style.display = 'none';
     addBtn.style.display = 'none';
     buttons.style.display = 'none';
 
     try {
-        const personas = await generatePersonas(appState.articleText, appState.availableModels);
-        appState.personas = personas;
+        const result = await generatePersonas(appState.articleText, appState.availableModels);
+        appState.personas = result.personas;
+
+        // Record generation call metadata in session
+        const callMeta = startCallMeta(result.callMeta.model, false);
+        finishCallMeta(callMeta, result.callMeta.usage);
+        callMeta.latency_ms = result.callMeta.latency_ms;
+        recordCallMeta(appState.session, 3, callMeta);
+        appState.session.steps[3].board_size = result.personas.length;
 
         loadingDiv.style.display = 'none';
         container.style.display = 'block';
@@ -332,6 +417,7 @@ async function startBoardGeneration() {
 
         renderPersonaCards();
     } catch (err) {
+        recordError(appState.session, 3, err.message);
         loadingDiv.textContent = '';
         const errorP = document.createElement('p');
         errorP.style.color = 'var(--neon-red)';
@@ -339,7 +425,10 @@ async function startBoardGeneration() {
         const retryBtn = document.createElement('button');
         retryBtn.className = 'btn-secondary';
         retryBtn.textContent = 'RETRY';
-        retryBtn.addEventListener('click', () => startBoardGeneration());
+        retryBtn.addEventListener('click', () => {
+            appState.personas = []; // Clear so retry works
+            startBoardGeneration();
+        });
         loadingDiv.appendChild(errorP);
         loadingDiv.appendChild(retryBtn);
     }
@@ -432,7 +521,7 @@ function syncPersonasFromDOM() {
 }
 
 // =============================================================================
-// SCREEN 4: DEBATE
+// SCREEN 4: DEBATE (PARALLEL)
 // =============================================================================
 
 function setupScreen4() {
@@ -451,19 +540,29 @@ async function startDebate() {
     const reportBtn = document.getElementById('generate-report-btn');
     const statusDiv = document.getElementById('debate-status');
 
+    // If debate results already exist (back-navigation), render them
+    if (appState.debateResults.length > 0) {
+        renderExistingDebate(messagesDiv, reportBtn, chatTitle, chatSubtitle);
+        return;
+    }
+
     messagesDiv.innerHTML = '';
     reportBtn.style.display = 'none';
     showStatus(statusDiv, '', '');
 
     chatTitle.textContent = appState.articleTitle;
-    chatSubtitle.textContent = `${appState.personas.length} UNITS ENGAGED`;
+    chatSubtitle.textContent = `${appState.personas.length} UNITS ENGAGED // PARALLEL MODE`;
 
-    addSystemMessage(messagesDiv, 'EDITORIAL BOARD DEBATE INITIATED // ALL UNITS REVIEWING ARTICLE');
+    addSystemMessage(messagesDiv, 'EDITORIAL BOARD DEBATE INITIATED // ALL UNITS EVALUATING IN PARALLEL');
 
-    let currentBubble = null;
+    // Create all bubbles upfront for parallel streaming
+    const bubbles = [];
+    let completedCount = 0;
 
-    // Throttle scroll updates during streaming to avoid layout thrashing.
-    // requestAnimationFrame ensures at most one scroll per frame (~60/sec).
+    // Per-persona call metadata trackers
+    const callMetas = appState.personas.map(p => startCallMeta(p.model, true));
+
+    // Throttle scroll
     let scrollPending = false;
     function scheduleScroll() {
         if (scrollPending) return;
@@ -478,63 +577,134 @@ async function startDebate() {
     try {
         await runDebate(appState.personas, appState.articleText, {
             onPersonaStart: (persona, index) => {
+                const bubble = createChatBubble(persona, index);
+                messagesDiv.appendChild(bubble);
+                bubbles[index] = bubble;
+
+                // Show typing indicator for all
                 typingDiv.style.display = 'flex';
-                typingName.textContent = `${persona.role} // EVALUATING (${index + 1}/${appState.personas.length})`;
-
-                // Update subtitle with progress
-                chatSubtitle.textContent = `UNIT ${index + 1} OF ${appState.personas.length} ACTIVE`;
-
-                currentBubble = createChatBubble(persona, index);
-                messagesDiv.appendChild(currentBubble);
+                typingName.textContent = `${appState.personas.length} UNITS EVALUATING IN PARALLEL`;
+                scheduleScroll();
             },
 
-            onToken: (persona, token) => {
-                if (!currentBubble) return;
-                const content = currentBubble.querySelector('.bubble-content');
+            onToken: (persona, index, token) => {
+                const bubble = bubbles[index];
+                if (!bubble) return;
+                const content = bubble.querySelector('.bubble-content');
                 content.textContent += token;
                 scheduleScroll();
             },
 
-            onPersonaDone: (persona, fullResponse) => {
-                typingDiv.style.display = 'none';
+            onPersonaDone: (persona, index, fullResponse, meta) => {
+                completedCount++;
+                const bubble = bubbles[index];
 
-                if (currentBubble) {
-                    const content = currentBubble.querySelector('.bubble-content');
+                // Finalize call metadata
+                if (meta?.usage) {
+                    finishCallMeta(callMetas[index], meta.usage);
+                } else {
+                    finishCallMeta(callMetas[index], {});
+                }
+                if (meta?.latency_ms) {
+                    callMetas[index].latency_ms = meta.latency_ms;
+                }
+                recordCallMeta(appState.session, 4, callMetas[index]);
+
+                if (bubble) {
+                    const content = bubble.querySelector('.bubble-content');
                     content.innerHTML = safeMarkdown(fullResponse);
 
                     const time = document.createElement('div');
                     time.className = 'bubble-time';
                     time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    currentBubble.appendChild(time);
+                    bubble.appendChild(time);
 
                     const model = document.createElement('div');
                     model.className = 'bubble-model';
-                    model.textContent = `VIA ${persona.model}`;
-                    currentBubble.appendChild(model);
+                    const cost = callMetas[index].cost_usd;
+                    const costStr = cost > 0 ? ` // $${cost.toFixed(4)}` : '';
+                    model.textContent = `VIA ${persona.model}${costStr}`;
+                    bubble.appendChild(model);
+                }
+
+                // Update progress
+                chatSubtitle.textContent = `${completedCount}/${appState.personas.length} UNITS COMPLETE`;
+                if (completedCount >= appState.personas.length) {
+                    typingDiv.style.display = 'none';
                 }
 
                 scheduleScroll();
             },
 
             onAllDone: (results) => {
-                appState.debateResults = results;
+                // Attach callMeta to each result
+                appState.debateResults = results.map((r, i) => ({
+                    ...r,
+                    callMeta: callMetas[i],
+                }));
+                appState.session.debate_results = appState.debateResults.map((r, i) => ({
+                    persona_index: i,
+                    response: r.response,
+                    call_meta: callMetas[i],
+                }));
+                recordStepCompletion(appState.session, 4);
+                persistToLocalStorage(appState.session);
+
                 addSystemMessage(messagesDiv, `ALL ${results.length} UNITS COMPLETE // READY FOR SYNTHESIS`);
                 reportBtn.style.display = 'block';
-
                 scheduleScroll();
             },
 
-            onError: (persona, error) => {
-                typingDiv.style.display = 'none';
-                if (currentBubble) {
-                    const content = currentBubble.querySelector('.bubble-content');
+            onError: (persona, index, error) => {
+                failCallMeta(callMetas[index], error.message);
+                recordError(appState.session, 4, error.message, persona.model);
+
+                const bubble = bubbles[index];
+                if (bubble) {
+                    const content = bubble.querySelector('.bubble-content');
                     content.innerHTML = `<em style="color: var(--neon-red);">ERROR: ${escapeHtml(error.message)}</em>`;
                 }
             },
         });
     } catch (err) {
         showStatus(statusDiv, `DEBATE FAILED: ${err.message}`, 'error');
+        recordError(appState.session, 4, err.message);
     }
+}
+
+/**
+ * Render existing debate results (for back-navigation).
+ */
+function renderExistingDebate(messagesDiv, reportBtn, chatTitle, chatSubtitle) {
+    messagesDiv.innerHTML = '';
+    chatTitle.textContent = appState.articleTitle;
+    chatSubtitle.textContent = `${appState.debateResults.length} UNITS COMPLETE`;
+
+    addSystemMessage(messagesDiv, 'EDITORIAL BOARD DEBATE // REVIEWING CACHED RESULTS');
+
+    appState.debateResults.forEach((result, index) => {
+        const persona = result.persona || appState.personas[index];
+        if (!persona) return;
+
+        const bubble = createChatBubble(persona, index);
+        const content = bubble.querySelector('.bubble-content');
+        content.innerHTML = safeMarkdown(result.response);
+
+        const time = document.createElement('div');
+        time.className = 'bubble-time';
+        time.textContent = 'CACHED';
+        bubble.appendChild(time);
+
+        const model = document.createElement('div');
+        model.className = 'bubble-model';
+        model.textContent = `VIA ${persona.model}`;
+        bubble.appendChild(model);
+
+        messagesDiv.appendChild(bubble);
+    });
+
+    addSystemMessage(messagesDiv, `ALL ${appState.debateResults.length} UNITS COMPLETE // READY FOR SYNTHESIS`);
+    reportBtn.style.display = 'block';
 }
 
 function createChatBubble(persona, colorIndex) {
@@ -570,49 +740,37 @@ function setupScreen5() {
     });
 
     document.getElementById('download-json-btn').addEventListener('click', () => {
-        const sessionData = {
-            article: { title: appState.articleTitle, full_text: appState.articleText },
-            personas: appState.personas.map((p, i) => ({
-                number: i + 1,
-                role: p.role,
-                stance: p.stance,
-                model: p.model,
-                editorial_lens: p.editorial_lens,
-                full_verdict: appState.debateResults[i]?.response || '',
-            })),
-            report: {
-                story_title: appState.articleTitle,
-                full_report_markdown: appState.reportMarkdown,
-            },
-        };
-        downloadJson(sessionData, `editorial-board-${slugify(appState.articleTitle)}.json`);
+        // Export full session state as JSON
+        computeTotals(appState.session);
+        const sessionExport = exportSession(appState.session);
+        downloadJson(sessionExport, `editorial-board-${slugify(appState.articleTitle)}.json`);
     });
 
-    // CSV export
     document.getElementById('download-csv-btn').addEventListener('click', () => {
+        computeTotals(appState.session);
         const csv = buildCsvExport(
             appState.articleTitle,
             appState.articleText,
             appState.personas,
             appState.debateResults,
-            appState.reportMarkdown
+            appState.reportMarkdown,
+            appState.session
         );
         downloadCsv(csv, `editorial-board-${slugify(appState.articleTitle)}.csv`);
     });
 
-    // Email CSV via Gmail
     document.getElementById('email-csv-btn').addEventListener('click', () => {
-        // First download the CSV so the user has it
+        computeTotals(appState.session);
         const csv = buildCsvExport(
             appState.articleTitle,
             appState.articleText,
             appState.personas,
             appState.debateResults,
-            appState.reportMarkdown
+            appState.reportMarkdown,
+            appState.session
         );
         downloadCsv(csv, `editorial-board-${slugify(appState.articleTitle)}.csv`);
 
-        // Open Gmail compose with pre-filled fields
         const subject = encodeURIComponent(`Editorial Board Data Donation: ${appState.articleTitle}`);
         const body = encodeURIComponent(
             `Hi!\n\nAttached is my editorial board CSV export for the article: "${appState.articleTitle}"\n\n` +
@@ -625,7 +783,23 @@ function setupScreen5() {
         window.open(gmailUrl, '_blank');
     });
 
-    // New review
+    // Export full session JSON (new button)
+    const exportBtn = document.getElementById('export-session-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            computeTotals(appState.session);
+            const blob = new Blob([JSON.stringify(exportSession(appState.session), null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `magi-session-${appState.session.session_id.substring(0, 8)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        });
+    }
+
     document.getElementById('new-review-btn').addEventListener('click', () => {
         appState.articleTitle = '';
         appState.articleText = '';
@@ -633,16 +807,17 @@ function setupScreen5() {
         appState.personas = [];
         appState.debateResults = [];
         appState.reportMarkdown = '';
+        appState.session = createSession();
 
         document.getElementById('paste-area').value = '';
         document.getElementById('article-title').value = '';
         document.getElementById('article-preview').style.display = 'none';
         document.getElementById('file-info').style.display = 'none';
 
-        // Reset file input so re-uploading the same file triggers a change event
         const fileInput = document.getElementById('file-input');
         if (fileInput) fileInput.value = '';
 
+        clearLocalStorage();
         navigateTo(2);
     });
 }
@@ -652,26 +827,51 @@ async function startReportGeneration() {
     const contentDiv = document.getElementById('report-content');
     const actionsDiv = document.getElementById('report-actions');
 
+    // If report already exists (back-navigation), just render it
+    if (appState.reportMarkdown) {
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        actionsDiv.style.display = 'block';
+        contentDiv.innerHTML = renderReport(appState.reportMarkdown);
+        return;
+    }
+
     loadingDiv.style.display = 'block';
     contentDiv.style.display = 'none';
     actionsDiv.style.display = 'none';
 
     try {
-        const report = await synthesizeReport(
+        const result = await synthesizeReport(
             appState.articleTitle,
             appState.articleText,
-            appState.debateResults,
-            pickSynthesisModel()
+            appState.debateResults
         );
 
-        appState.reportMarkdown = report;
+        appState.reportMarkdown = result.content;
+
+        // Record synthesis call metadata
+        const callMeta = startCallMeta(result.model || SYNTHESIS_MODEL, false);
+        finishCallMeta(callMeta, result.usage);
+        callMeta.latency_ms = result.latency_ms;
+        recordCallMeta(appState.session, 5, callMeta);
+        appState.session.report = {
+            markdown: result.content,
+            verdict: extractVerdict(result.content),
+        };
+        recordStepCompletion(appState.session, 5);
+        computeTotals(appState.session);
+        persistToLocalStorage(appState.session);
+
+        // Fire telemetry (non-blocking)
+        sendAllTelemetry(appState.session);
 
         loadingDiv.style.display = 'none';
         contentDiv.style.display = 'block';
         actionsDiv.style.display = 'block';
 
-        contentDiv.innerHTML = renderReport(report);
+        contentDiv.innerHTML = renderReport(result.content);
     } catch (err) {
+        recordError(appState.session, 5, err.message);
         loadingDiv.textContent = '';
         const errorP = document.createElement('p');
         errorP.style.color = 'var(--neon-red)';
@@ -679,25 +879,21 @@ async function startReportGeneration() {
         const retryBtn = document.createElement('button');
         retryBtn.className = 'btn-secondary';
         retryBtn.textContent = 'RETRY';
-        retryBtn.addEventListener('click', () => startReportGeneration());
+        retryBtn.addEventListener('click', () => {
+            appState.reportMarkdown = ''; // Clear so retry works
+            startReportGeneration();
+        });
         loadingDiv.appendChild(errorP);
         loadingDiv.appendChild(retryBtn);
     }
 }
 
-function pickSynthesisModel() {
-    const preferred = [
-        'anthropic/claude-sonnet-4',
-        'anthropic/claude-3.5-sonnet',
-        'openai/gpt-4o',
-        'google/gemini-2.5-pro',
-        'google/gemini-2.0-flash',
-    ];
-    const ids = new Set(appState.availableModels.map(m => m.id));
-    for (const model of preferred) {
-        if (ids.has(model)) return model;
-    }
-    return appState.personas[0]?.model || appState.availableModels[0]?.id;
+/**
+ * Extract the verdict from the report markdown.
+ */
+function extractVerdict(markdown) {
+    const match = markdown.match(/\*\*VERDICT:\*\*\s*(.+)/i);
+    return match ? match[1].trim() : '';
 }
 
 // =============================================================================
@@ -723,13 +919,91 @@ function slugify(text) {
 }
 
 // =============================================================================
+// DEBUG PANEL TOGGLE
+// =============================================================================
+
+function setupDebugToggle() {
+    const footer = document.getElementById('app-footer');
+    if (!footer) return;
+
+    let clickCount = 0;
+    let clickTimer = null;
+
+    footer.addEventListener('click', () => {
+        clickCount++;
+        if (clickTimer) clearTimeout(clickTimer);
+        clickTimer = setTimeout(() => { clickCount = 0; }, 1000);
+
+        if (clickCount >= 3) {
+            clickCount = 0;
+            toggleDebugPanel();
+        }
+    });
+}
+
+function toggleDebugPanel() {
+    let panel = document.getElementById('debug-panel');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        if (panel.style.display === 'block') {
+            updateDebugPanel();
+        }
+        return;
+    }
+
+    // Create debug panel
+    panel = document.createElement('div');
+    panel.id = 'debug-panel';
+    panel.style.cssText = `
+        position: fixed; bottom: 0; left: 0; right: 0; max-height: 50vh;
+        overflow-y: auto; background: #0a0a0a; border-top: 2px solid var(--neon-green);
+        padding: 1rem; font-family: var(--font-mono); font-size: 0.875rem;
+        color: var(--neon-green); z-index: 9998;
+    `;
+    document.body.appendChild(panel);
+    updateDebugPanel();
+}
+
+function updateDebugPanel() {
+    const panel = document.getElementById('debug-panel');
+    if (!panel) return;
+
+    computeTotals(appState.session);
+    const s = appState.session;
+    const t = s.totals;
+
+    let html = `<div style="margin-bottom:0.5rem;color:var(--neon-orange);">// MAGI DEBUG CONSOLE</div>`;
+    html += `<div>SESSION: ${s.session_id.substring(0, 8)} | KEY: ${s.steps[1]?.key_source || '?'} | STEP: ${s.current_step}</div>`;
+    html += `<div>TOKENS: ${t.prompt_tokens + t.completion_tokens} (${t.prompt_tokens}p + ${t.completion_tokens}c) | COST: $${t.total_cost.toFixed(4)} | LATENCY: ${(t.total_latency_ms / 1000).toFixed(1)}s</div>`;
+    html += `<div>ERRORS: ${s.errors.length}</div>`;
+
+    if (s.steps[4]?.debate_calls?.length > 0) {
+        html += `<div style="margin-top:0.5rem;color:var(--neon-orange);">// PER-PERSONA</div>`;
+        s.steps[4].debate_calls.forEach((c, i) => {
+            const persona = appState.personas[i];
+            const name = persona ? persona.role.substring(0, 25) : `#${i + 1}`;
+            html += `<div>${name} | ${c.model?.split('/')[1] || '?'} | ${c.total_tokens}tok | ${(c.latency_ms / 1000).toFixed(1)}s | $${(c.cost_usd || 0).toFixed(4)}${c.error ? ' | ERR' : ''}</div>`;
+        });
+    }
+
+    if (s.errors.length > 0) {
+        html += `<div style="margin-top:0.5rem;color:var(--neon-red);">// ERRORS</div>`;
+        s.errors.forEach(e => {
+            html += `<div>Step ${e.step}: ${e.message}</div>`;
+        });
+    }
+
+    html += `<div style="margin-top:0.5rem;"><button id="debug-close-btn" style="background:none;border:1px solid var(--neon-green);color:var(--neon-green);padding:0.25rem 0.5rem;cursor:pointer;font-family:inherit;">CLOSE</button></div>`;
+    panel.innerHTML = html;
+    document.getElementById('debug-close-btn')?.addEventListener('click', () => {
+        panel.style.display = 'none';
+    });
+}
+
+// =============================================================================
 // CDN LIBRARY CHECKS
 // =============================================================================
 
-/**
- * Check if required CDN libraries loaded successfully.
- * Warns in the UI if critical libraries are missing.
- */
 function checkDependencies() {
     const missing = [];
     if (typeof mammoth === 'undefined') missing.push('mammoth.js (DOCX parsing)');
@@ -738,7 +1012,6 @@ function checkDependencies() {
 
     if (missing.length > 0) {
         console.warn('Missing CDN libraries:', missing);
-        // Show a non-blocking warning if libraries are missing
         const header = document.getElementById('header-status');
         if (header) {
             header.textContent = 'DEGRADED: CDN LIBS MISSING';
@@ -758,4 +1031,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setupScreen3();
     setupScreen4();
     setupScreen5();
+    setupDebugToggle();
 });

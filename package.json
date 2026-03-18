@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "name": "magi-editorial-board",
+  "version": "1.0.0",
+  "description": "AI-Powered Editorial Board - MAGI System",
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}

@@ -5,7 +5,7 @@
 // This is the "brain" of the application. It contains:
 // 1. The prompt engineering for persona generation
 // 2. The editorial evaluation criteria (from editorial-board.md)
-// 3. The debate orchestration (running personas sequentially)
+// 3. The debate orchestration (running personas in parallel)
 //
 // Think of this as the domain logic layer - it knows WHAT to ask the LLMs.
 // api.js knows HOW to talk to OpenRouter. This separation means you can
@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { chatCompletion, streamChatCompletion } from './api.js';
+import { BOARD_MODEL_FAMILIES } from './config.js';
 
 // =============================================================================
 // EDITORIAL CRITERIA (copied from editorial-board.md)
@@ -38,25 +39,11 @@ Audit every major factual claim for adequate support. For each, identify:
 Do NOT simply say "sourcing is adequate." Point to specific claims and the specific evidence (or lack thereof).`;
 
 // =============================================================================
-// DEFAULT MODEL PREFERENCES
+// META MODEL PREFERENCE (for persona generation / curator tasks)
 // =============================================================================
-// When auto-assigning models, pick the "best" model per family.
-// First available in the list wins. These are capable models that won't
-// bankrupt users on a single editorial board run.
 
-const DEFAULT_MODEL_PREFERENCES = {
-    'anthropic': ['anthropic/claude-sonnet-4', 'anthropic/claude-3.5-sonnet', 'anthropic/claude-haiku-4'],
-    'openai': ['openai/gpt-4o', 'openai/gpt-4o-mini', 'openai/chatgpt-4o-latest'],
-    'google': ['google/gemini-2.5-pro', 'google/gemini-2.0-flash', 'google/gemini-pro-1.5'],
-    'meta-llama': ['meta-llama/llama-3.3-70b-instruct', 'meta-llama/llama-3.1-70b-instruct'],
-    'deepseek': ['deepseek/deepseek-chat-v3-0324', 'deepseek/deepseek-chat'],
-    'mistralai': ['mistralai/mistral-large', 'mistralai/mixtral-8x22b-instruct'],
-    'qwen': ['qwen/qwen-2.5-72b-instruct', 'qwen/qwen-2.5-coder-32b-instruct'],
-    'cohere': ['cohere/command-r-plus', 'cohere/command-r'],
-};
-
-// For the "curator" model (persona generation) and "synthesizer" (report):
 const META_MODEL_PREFERENCE = [
+    'anthropic/claude-sonnet-4-20250514',
     'anthropic/claude-sonnet-4',
     'anthropic/claude-3.5-sonnet',
     'openai/gpt-4o',
@@ -74,10 +61,6 @@ const META_MODEL_PREFERENCE = [
  * @param {string} articleText - The full article text
  * @param {number} boardSize - How many personas (3-8)
  * @returns {Array} Messages array for chatCompletion
- *
- * WHY ask the LLM to generate personas? Because personas should be
- * SPECIFIC to this article's subject matter. A story about AI regulation
- * needs different voices than one about climate policy.
  */
 function buildPersonaGenerationPrompt(articleText, boardSize) {
     const systemPrompt = `You are an editorial board curator. Your job is to assemble a diverse editorial board to review a news article.
@@ -90,8 +73,35 @@ Generate exactly ${boardSize} personas satisfying these rules:
 - Each persona must bring a genuinely DISTINCT editorial lens
 - No persona should duplicate another's perspective
 
+CRITICAL REQUIREMENT — STAKEHOLDER REPRESENTATION:
+Your board must NOT be composed entirely of journalists, editors, or media professionals.
+At least 2 of the ${boardSize} personas must be real-world STAKEHOLDERS directly affected
+by or involved in the story's subject matter. These stakeholders must represent opposing
+sides of the issue.
+
+Examples:
+- Story about war in Iran → include a persona representing Iranian civilian perspective
+  AND a persona representing the opposing state/military perspective
+- Story about police shooting of a Black person → include a young Black American
+  perspective AND a law enforcement/community safety perspective
+- Story about Palestine → include a young Palestinian from Gaza AND an Israeli
+  civilian or security perspective
+- Story about tech regulation → include a tech worker/founder AND a consumer
+  advocate or affected community member
+- Story about immigration → include an immigrant or asylum seeker AND a border
+  community resident or enforcement perspective
+- Story about healthcare policy → include a patient/caregiver AND a healthcare
+  provider or insurance industry perspective
+
+These stakeholder personas should evaluate the article from their lived-experience
+perspective: Does the article accurately represent their reality? What is missing?
+What is distorted? They are NOT journalists — they bring the voice of the people
+the story is about.
+
+The remaining personas should be editorial/journalistic roles as before.
+
 For each persona, provide:
-1. "role": A specific role name tied to THIS article's subject matter (e.g., "National Security Editor" not just "Editor"). Do NOT use real people's names.
+1. "role": A specific role name tied to THIS article's subject matter (e.g., "National Security Editor" not just "Editor"). For stakeholder personas, use descriptive names like "Iranian Civilian in Tehran" or "Young Black Community Organizer, Chicago". Do NOT use real people's names.
 2. "stance": Exactly one of "FOR", "AGAINST", or "NEUTRAL"
 3. "editorial_lens": One sentence describing their specific editorial concern
 4. "stance_prompt": A detailed 3-4 sentence description of:
@@ -120,7 +130,7 @@ RESPOND WITH ONLY A JSON object in this exact format (no markdown fences, no exp
 }
 
 /**
- * Pick a "meta" model for curator/synthesis tasks.
+ * Pick a "meta" model for curator tasks.
  * Returns the first preferred model that's actually available.
  */
 function pickMetaModel(availableModels) {
@@ -132,13 +142,10 @@ function pickMetaModel(availableModels) {
 }
 
 // Maximum character count sent to any single LLM call.
-// Conservative estimate: ~4 chars per token, most models have 128k+ context,
-// but we cap at ~60k chars to leave room for system prompt + response.
 const MAX_ARTICLE_CHARS = 60_000;
 
 /**
  * Truncate article text if it exceeds the safe limit for LLM context windows.
- * Appends a notice so the LLM knows the text was truncated.
  */
 function truncateArticle(text) {
     if (text.length <= MAX_ARTICLE_CHARS) return text;
@@ -151,16 +158,20 @@ function truncateArticle(text) {
  *
  * @param {string} articleText - The article to analyze
  * @param {Array} availableModels - All models from OpenRouter [{id, name, ...}]
- * @returns {Promise<Array>} Array of persona objects with model assignments
+ * @returns {Promise<{personas: Array, callMeta: {content, usage, model, latency_ms}}>}
  */
 export async function generatePersonas(articleText, availableModels) {
     if (!availableModels || availableModels.length === 0) {
         throw new Error('No models available. Validate your API key first.');
     }
 
-    // 1. Determine board size based on available model families
-    const families = [...new Set(availableModels.map(m => m.id.split('/')[0]))];
-    const boardSize = Math.max(3, Math.min(8, families.length));
+    // 1. Determine board size based on available families from config
+    const modelIds = new Set(availableModels.map(m => m.id));
+    const availableFamilies = BOARD_MODEL_FAMILIES.filter(f => {
+        // Check if any model from this family is available
+        return availableModels.some(m => m.id.startsWith(f.family + '/'));
+    });
+    const boardSize = Math.max(3, Math.min(8, availableFamilies.length));
 
     // 2. Pick a curator model
     const curatorModel = pickMetaModel(availableModels);
@@ -170,17 +181,17 @@ export async function generatePersonas(articleText, availableModels) {
 
     // 3. Build prompt and call LLM (truncate article if needed)
     const messages = buildPersonaGenerationPrompt(truncateArticle(articleText), boardSize);
-    const response = await chatCompletion(curatorModel, messages, {
+    const result = await chatCompletion(curatorModel, messages, {
         temperature: 0.7,
         max_tokens: 4000,
     });
 
     // 4. Parse JSON from response with multiple fallback strategies
+    const response = result.content;
     let parsed;
     try {
         parsed = JSON.parse(response);
     } catch (e) {
-        // LLM might wrap JSON in markdown code fences - try to extract
         const match = response.match(/```(?:json)?\s*([\s\S]*?)```/);
         if (match) {
             try {
@@ -189,7 +200,6 @@ export async function generatePersonas(articleText, availableModels) {
                 throw new Error('Failed to parse persona suggestions. The AI returned invalid JSON inside code fences.');
             }
         } else {
-            // Last resort: try to find a JSON object or array in the response
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 try {
@@ -208,7 +218,7 @@ export async function generatePersonas(articleText, availableModels) {
         throw new Error('No personas generated. Try again.');
     }
 
-    // Validate persona structure - ensure required fields exist
+    // Validate persona structure
     for (const p of personas) {
         if (!p.role || typeof p.role !== 'string') p.role = 'Editorial Board Member';
         if (!['FOR', 'AGAINST', 'NEUTRAL'].includes(p.stance)) p.stance = 'NEUTRAL';
@@ -216,48 +226,53 @@ export async function generatePersonas(articleText, availableModels) {
     }
 
     // 5. Auto-assign models
-    return assignModels(personas, availableModels);
+    const assignedPersonas = assignModels(personas, availableModels);
+
+    // Return personas + raw call metadata for state tracking
+    return { personas: assignedPersonas, callMeta: result };
 }
 
 /**
- * Auto-assign models to personas. Each persona should use a different
- * model family (the "cardinal rule" from editorial-board.md).
+ * Auto-assign models to personas using BOARD_MODEL_FAMILIES from config.
+ * Each persona gets a different model family.
  *
  * @param {Array} personas - Persona objects (without model assignments)
  * @param {Array} availableModels - All models from OpenRouter
  * @returns {Array} Personas with .model field populated
- *
- * STRATEGY:
- * 1. Group models by family (the prefix before "/")
- * 2. For each family, pick the preferred model from DEFAULT_MODEL_PREFERENCES
- * 3. Assign one family per persona, round-robin
- * 4. If more personas than families: pair FOR with AGAINST on same model
  */
 export function assignModels(personas, availableModels) {
     const modelIds = new Set(availableModels.map(m => m.id));
 
-    // Group by family and pick the best model per family
-    const familyModels = {};
-    const families = [...new Set(availableModels.map(m => m.id.split('/')[0]))];
-
-    for (const family of families) {
-        const prefs = DEFAULT_MODEL_PREFERENCES[family] || [];
-        // Find first preferred model that's actually available
-        const preferred = prefs.find(p => modelIds.has(p));
-        // Fallback: first model in this family
-        const fallback = availableModels.find(m => m.id.startsWith(family + '/'))?.id;
-        familyModels[family] = preferred || fallback;
+    // Build ordered list of available models from config families
+    const assignableModels = [];
+    for (const familyConfig of BOARD_MODEL_FAMILIES) {
+        // First try the exact preferred model
+        if (modelIds.has(familyConfig.model)) {
+            assignableModels.push(familyConfig.model);
+            continue;
+        }
+        // Fallback: first available model from this family
+        const fallback = availableModels.find(m => m.id.startsWith(familyConfig.family + '/'))?.id;
+        if (fallback) {
+            assignableModels.push(fallback);
+        }
     }
 
-    // Get list of family names that have a usable model
-    const usableFamilies = Object.entries(familyModels)
-        .filter(([, model]) => model)
-        .map(([family]) => family);
+    // If we have fewer assignable models than personas, supplement with any remaining models
+    if (assignableModels.length < personas.length) {
+        const used = new Set(assignableModels);
+        for (const m of availableModels) {
+            if (!used.has(m.id) && assignableModels.length < personas.length) {
+                assignableModels.push(m.id);
+                used.add(m.id);
+            }
+        }
+    }
 
     // Assign round-robin
     return personas.map((persona, index) => ({
         ...persona,
-        model: familyModels[usableFamilies[index % usableFamilies.length]] || availableModels[0]?.id,
+        model: assignableModels[index % assignableModels.length] || availableModels[0]?.id,
     }));
 }
 
@@ -270,11 +285,6 @@ export function assignModels(personas, availableModels) {
  *
  * @param {Array} personas
  * @returns {{ valid: boolean, errors: string[] }}
- *
- * Rules (from editorial-board.md):
- * - Minimum 3, maximum 8 personas
- * - At least 1 FOR, 1 AGAINST, 1 NEUTRAL
- * - Duplicate model families are warned (not blocked)
  */
 export function validateBoard(personas) {
     const errors = [];
@@ -289,7 +299,6 @@ export function validateBoard(personas) {
         if (!stances.includes('AGAINST')) errors.push('At least 1 AGAINST persona required.');
         if (!stances.includes('NEUTRAL')) errors.push('At least 1 NEUTRAL persona required.');
 
-        // Warn about duplicate model families (not a hard error)
         const families = personas.map(p => (p.model || '').split('/')[0]);
         const seen = {};
         const dupes = [];
@@ -303,7 +312,6 @@ export function validateBoard(personas) {
             warnings.push(`Duplicate model families: ${dupes.join(', ')}. Different families give more diverse perspectives.`);
         }
 
-        // Check for empty roles or missing models
         personas.forEach((p, i) => {
             if (!p.role || !p.role.trim()) {
                 errors.push(`Persona #${i + 1} needs a role name.`);
@@ -325,21 +333,14 @@ export function validateBoard(personas) {
 // =============================================================================
 
 /**
- * Build the evaluation prompt for a single persona.
- * This is the prompt each persona receives to evaluate the article.
+ * Build the evaluation prompt for a single persona (parallel mode — no
+ * previous speaker context).
  *
  * @param {Object} persona - The persona object
  * @param {string} articleText - The full article text
- * @param {Array} previousResponses - Array of {persona, response} from earlier speakers
  * @returns {Array} Messages array for streaming chat completion
- *
- * DESIGN: The first persona is "blinded" (sees only the article).
- * Subsequent personas see a summary of what previous members said and are
- * instructed to reference them by name - agreeing, disagreeing, or building
- * on their points. This makes the debate feel like a real conversation.
  */
-export function buildEvaluationPrompt(persona, articleText, previousResponses = []) {
-    // Build a stance-specific preamble
+export function buildEvaluationPrompt(persona, articleText) {
     let stanceGuidance;
     if (persona.stance === 'FOR') {
         stanceGuidance = `You are inclined to recommend publication. Look for the story's strengths, its public interest value, and the adequacy of its sourcing. However, you MUST still honestly flag serious framing or evidentiary problems if they exist. A good story should withstand scrutiny.`;
@@ -349,31 +350,7 @@ export function buildEvaluationPrompt(persona, articleText, previousResponses = 
         stanceGuidance = `You take a balanced, analytical approach. Weigh evidence proportionally. Neither champion nor oppose publication reflexively. Your job is to surface the most important considerations the board should weigh, giving each its fair weight based on the evidence.`;
     }
 
-    // Build the "previous discussion" section for personas after the first
-    let discussionContext = '';
-    if (previousResponses.length > 0) {
-        const summaries = previousResponses.map(r =>
-            `**@${r.persona.role}** (${r.persona.stance}): ${r.response.substring(0, 800)}${r.response.length > 800 ? '...' : ''}`
-        ).join('\n\n');
-
-        discussionContext = `
-PREVIOUS BOARD DISCUSSION:
-The following board members have already spoken. You are joining an ongoing editorial discussion.
-Read their positions carefully, then provide YOUR OWN assessment. You MUST:
-- Reference other board members BY NAME using @Name format (e.g., "@${previousResponses[0].persona.role}")
-- Explicitly agree or disagree with specific points they raised
-- Build on their analysis where relevant, or challenge it where you see flaws
-- Do NOT simply repeat what others said - add new insights from YOUR editorial lens
-- If someone made a strong point, acknowledge it: "As @Name correctly noted..."
-- If you disagree, be direct: "I disagree with @Name's assessment that..."
-
-${summaries}
-
----
-Now provide YOUR assessment, engaging with the discussion above:`;
-    }
-
-    const systemPrompt = `You are participating in an editorial board debate about whether to publish a news story.${previousResponses.length > 0 ? ' Other board members have already spoken - you are responding in an ongoing group discussion. Write as if you are in a WhatsApp group chat with your colleagues: direct, conversational, and referencing others by name.' : ' You are the first to speak.'}
+    const systemPrompt = `You are participating in an editorial board debate about whether to publish a news story. You are evaluating independently — other board members are evaluating simultaneously, but you cannot see their responses.
 
 YOUR PERSONA:
 Role: ${persona.role}
@@ -395,7 +372,7 @@ ${EVIDENTIARY_SUFFICIENCY_CRITERIA}
 **SECONDARY CONSIDERATIONS:** newsworthiness, public interest, potential harm, legal risk, and journalistic standards. Accuracy means describing things as they are - if the evidence points one direction, say so. Do not manufacture false balance.
 
 INSTRUCTIONS:
-${previousResponses.length > 0 ? 'Engage with the ongoing discussion. Reference other board members by @Name. Then provide:' : 'Provide your assessment in this format:'}
+Provide your assessment in this format:
 1. **Verdict**: PUBLISH or HOLD (PUBLISH WITH CONDITIONS only if 1-2 specific fixable issues)
 2. **Framing Analysis**: Your assessment of the article's framing, with specific examples
 3. **Evidence Audit**: Specific claims and whether they are supported, under-supported, or unsupported
@@ -405,82 +382,81 @@ ${previousResponses.length > 0 ? 'Engage with the ongoing discussion. Reference 
 
 Be specific. Point to particular claims, quotes, word choices, and omissions. Do not be vague.`;
 
-    const userContent = previousResponses.length > 0
-        ? `Here is the article under review:\n\n${articleText}\n\n${discussionContext}`
-        : `Here is the article for your editorial review:\n\n${articleText}`;
-
     return [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
+        { role: 'user', content: `Here is the article for your editorial review:\n\n${articleText}` },
     ];
 }
 
 // =============================================================================
-// DEBATE ORCHESTRATION
+// DEBATE ORCHESTRATION (PARALLEL)
 // =============================================================================
 
 /**
- * Run the full debate: each persona evaluates the article sequentially.
- * Each persona after the first can see what previous members said,
- * enabling them to reference, agree with, or challenge each other.
+ * Run the full debate: all personas evaluate the article in parallel.
+ * Each persona streams simultaneously into its own chat bubble.
  *
  * @param {Array} personas - The configured persona array
  * @param {string} articleText - The full article text
  * @param {Object} callbacks:
  *   - onPersonaStart(persona, index): when a persona begins
- *   - onToken(persona, token): for each streamed token
- *   - onPersonaDone(persona, fullResponse): when a persona finishes
+ *   - onToken(persona, index, token): for each streamed token
+ *   - onPersonaDone(persona, index, fullResponse, meta): when a persona finishes
  *   - onAllDone(results): when all personas have finished
- *   - onError(persona, error): on error
- * @returns {Promise<Array>} Array of { persona, response } objects
+ *   - onError(persona, index, error): on error
+ * @returns {Promise<Array>} Array of { persona, response, callMeta } objects
  */
 export async function runDebate(personas, articleText, callbacks) {
-    const results = [];
     const safeArticleText = truncateArticle(articleText);
 
+    // Notify UI that all personas are starting
     for (let i = 0; i < personas.length; i++) {
-        const persona = personas[i];
-        callbacks.onPersonaStart(persona, i);
-
-        // Pass previous responses so this persona can reference others
-        const messages = buildEvaluationPrompt(persona, safeArticleText, results);
-        let fullResponse = '';
-
-        try {
-            // Wrap streaming in a Promise so we can await it in our sequential loop
-            await new Promise((resolve, reject) => {
-                streamChatCompletion(persona.model, messages, {
-                    onToken: (token) => {
-                        fullResponse += token;
-                        callbacks.onToken(persona, token);
-                    },
-                    onDone: () => {
-                        callbacks.onPersonaDone(persona, fullResponse);
-                        results.push({ persona, response: fullResponse });
-                        resolve();
-                    },
-                    onError: (error) => {
-                        callbacks.onError(persona, error);
-                        // Still add a result entry so we don't skip this persona
-                        results.push({ persona, response: `[Error: ${error.message}]` });
-                        resolve(); // Don't reject - continue with remaining personas
-                    },
-                    temperature: 0.7,
-                    max_tokens: 4000,
-                });
-            });
-
-            // Brief pause between personas (rate limit mitigation + UX breathing room)
-            if (i < personas.length - 1) {
-                await new Promise(r => setTimeout(r, 1000));
-            }
-        } catch (err) {
-            // This shouldn't fire (errors are caught above) but just in case
-            callbacks.onError(persona, err);
-            results.push({ persona, response: `[Error: ${err.message}]` });
-        }
+        callbacks.onPersonaStart(personas[i], i);
     }
 
-    callbacks.onAllDone(results);
-    return results;
+    // Launch all personas in parallel
+    const promises = personas.map((persona, i) => {
+        const messages = buildEvaluationPrompt(persona, safeArticleText);
+        let fullResponse = '';
+
+        return new Promise((resolve) => {
+            streamChatCompletion(persona.model, messages, {
+                onToken: (token) => {
+                    fullResponse += token;
+                    callbacks.onToken(persona, i, token);
+                },
+                onMeta: (meta) => {
+                    // meta = { usage, model, latency_ms }
+                    const result = { persona, response: fullResponse, streamMeta: meta };
+                    callbacks.onPersonaDone(persona, i, fullResponse, meta);
+                    resolve(result);
+                },
+                onDone: () => {
+                    // onMeta fires before onDone for streams with usage data.
+                    // If onMeta didn't fire (no usage), resolve here.
+                },
+                onError: (error) => {
+                    callbacks.onError(persona, i, error);
+                    resolve({ persona, response: `[Error: ${error.message}]`, streamMeta: null, error: error.message });
+                },
+                temperature: 0.7,
+                max_tokens: 4000,
+            });
+
+            // Safety timeout: if neither onMeta nor onDone fires in 5 min, resolve anyway
+            setTimeout(() => {
+                if (fullResponse) {
+                    resolve({ persona, response: fullResponse, streamMeta: null });
+                } else {
+                    resolve({ persona, response: '[Error: Timed out]', streamMeta: null, error: 'Timed out' });
+                }
+            }, 300_000);
+        });
+    });
+
+    const results = await Promise.allSettled(promises);
+    const finalResults = results.map(r => r.status === 'fulfilled' ? r.value : { persona: null, response: '[Error]', streamMeta: null });
+
+    callbacks.onAllDone(finalResults);
+    return finalResults;
 }

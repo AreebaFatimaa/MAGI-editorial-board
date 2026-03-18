@@ -11,6 +11,7 @@
 // =============================================================================
 
 import { chatCompletion } from './api.js';
+import { SYNTHESIS_MODEL } from './config.js';
 
 // =============================================================================
 // MARKDOWN SANITIZATION
@@ -188,18 +189,17 @@ Please synthesize these ${debateResults.length} evaluations into the editorial b
     ];
 }
 
-export async function synthesizeReport(articleTitle, articleText, debateResults, synthesisModel) {
+export async function synthesizeReport(articleTitle, articleText, debateResults) {
     if (!debateResults || debateResults.length === 0) {
         throw new Error('No debate results to synthesize. Run the debate first.');
     }
-    if (!synthesisModel) {
-        throw new Error('No synthesis model selected.');
-    }
     const messages = buildSynthesisPrompt(articleTitle, articleText, debateResults);
-    return await chatCompletion(synthesisModel, messages, {
+    const result = await chatCompletion(SYNTHESIS_MODEL, messages, {
         temperature: 0.3,
         max_tokens: 8000,
     });
+    // Return content + metadata for state tracking
+    return result;
 }
 
 // =============================================================================
@@ -268,7 +268,7 @@ function csvEscape(val) {
  * 2. DEBATE TRANSCRIPT - full responses
  * 3. EDITORIAL REPORT - the synthesis
  */
-export function buildCsvExport(articleTitle, articleText, personas, debateResults, reportMarkdown) {
+export function buildCsvExport(articleTitle, articleText, personas, debateResults, reportMarkdown, sessionState) {
     const rows = [];
 
     // Section 1: Board Constitution
@@ -290,15 +290,25 @@ export function buildCsvExport(articleTitle, articleText, personas, debateResult
     rows.push([]);
     rows.push([]);
 
-    // Section 2: Debate Transcript
+    // Section 2: Debate Transcript (with metadata)
     rows.push([csvEscape('=== DEBATE TRANSCRIPT ===')]);
-    rows.push([csvEscape('#'), csvEscape('Role'), csvEscape('Stance'), csvEscape('Model'), csvEscape('Full Response')]);
+    rows.push([
+        csvEscape('#'), csvEscape('Role'), csvEscape('Stance'), csvEscape('Model'),
+        csvEscape('Prompt Tokens'), csvEscape('Completion Tokens'),
+        csvEscape('Latency (s)'), csvEscape('Cost ($)'),
+        csvEscape('Full Response'),
+    ]);
     (debateResults || []).forEach((r, i) => {
+        const meta = r.callMeta || r.call_meta || {};
         rows.push([
             csvEscape(i + 1),
             csvEscape(r.persona?.role),
             csvEscape(r.persona?.stance),
             csvEscape(r.persona?.model),
+            csvEscape(meta.prompt_tokens || ''),
+            csvEscape(meta.completion_tokens || ''),
+            csvEscape(meta.latency_ms ? (meta.latency_ms / 1000).toFixed(1) : ''),
+            csvEscape(meta.cost_usd ? meta.cost_usd.toFixed(6) : ''),
             csvEscape(r.response),
         ]);
     });
@@ -310,6 +320,22 @@ export function buildCsvExport(articleTitle, articleText, personas, debateResult
     rows.push([csvEscape('=== EDITORIAL REPORT ===')]);
     rows.push([csvEscape('Full Report')]);
     rows.push([csvEscape(reportMarkdown || '')]);
+
+    rows.push([]);
+    rows.push([]);
+
+    // Section 4: Session Metadata
+    if (sessionState) {
+        rows.push([csvEscape('=== SESSION METADATA ===')]);
+        rows.push([csvEscape('Session ID'), csvEscape(sessionState.session_id || '')]);
+        rows.push([csvEscape('Created At'), csvEscape(sessionState.created_at || '')]);
+        rows.push([csvEscape('Total Prompt Tokens'), csvEscape(sessionState.totals?.prompt_tokens || 0)]);
+        rows.push([csvEscape('Total Completion Tokens'), csvEscape(sessionState.totals?.completion_tokens || 0)]);
+        rows.push([csvEscape('Total Cost ($)'), csvEscape(sessionState.totals?.total_cost?.toFixed(6) || '0')]);
+        rows.push([csvEscape('Total Duration (s)'), csvEscape(sessionState.totals?.total_latency_ms ? (sessionState.totals.total_latency_ms / 1000).toFixed(1) : '0')]);
+        rows.push([csvEscape('Key Source'), csvEscape(sessionState.steps?.[1]?.key_source || 'unknown')]);
+        rows.push([csvEscape('Synthesis Model'), csvEscape(sessionState.steps?.[5]?.synthesis_call?.model || '')]);
+    }
 
     // Convert rows to CSV string
     return rows.map(row => row.join(',')).join('\n');
