@@ -529,6 +529,11 @@ function setupScreen4() {
         navigateTo(5);
         startReportGeneration();
     });
+
+    document.getElementById('back-to-board-btn').addEventListener('click', () => {
+        navigateTo(3);
+        startBoardGeneration(); // Will render cached personas, not regenerate
+    });
 }
 
 async function startDebate() {
@@ -800,6 +805,11 @@ function setupScreen5() {
         });
     }
 
+    document.getElementById('back-to-debate-btn').addEventListener('click', () => {
+        navigateTo(4);
+        startDebate(); // Will render cached debate, not re-run
+    });
+
     document.getElementById('new-review-btn').addEventListener('click', () => {
         appState.articleTitle = '';
         appState.articleText = '';
@@ -919,6 +929,68 @@ function slugify(text) {
 }
 
 // =============================================================================
+// STEP INDICATOR NAVIGATION
+// =============================================================================
+
+function setupStepNavigation() {
+    // Click any step to navigate there (if data exists for that step)
+    document.querySelectorAll('#step-indicator .step').forEach(stepEl => {
+        stepEl.style.cursor = 'pointer';
+        stepEl.addEventListener('click', () => {
+            const targetStep = parseInt(stepEl.dataset.step);
+            if (targetStep === appState.currentScreen) return;
+            navigateToStep(targetStep);
+        });
+    });
+
+    // Click MAGI logo to go to screen 1 (home)
+    const logo = document.querySelector('.nerv-logo');
+    if (logo) {
+        logo.style.cursor = 'pointer';
+        logo.addEventListener('click', () => navigateToStep(1));
+    }
+}
+
+function navigateToStep(targetStep) {
+    // Screen 1 is always accessible
+    if (targetStep === 1) {
+        navigateTo(1);
+        return;
+    }
+
+    // Screen 2 requires a validated key
+    if (targetStep === 2) {
+        if (!appState.apiKey) return;
+        navigateTo(2);
+        return;
+    }
+
+    // Screen 3 requires article text
+    if (targetStep === 3) {
+        if (!appState.articleText) return;
+        navigateTo(3);
+        startBoardGeneration(); // Renders cached personas or generates new
+        return;
+    }
+
+    // Screen 4 requires personas
+    if (targetStep === 4) {
+        if (!appState.personas.length) return;
+        navigateTo(4);
+        startDebate(); // Renders cached debate or starts new
+        return;
+    }
+
+    // Screen 5 requires debate results
+    if (targetStep === 5) {
+        if (!appState.debateResults.length) return;
+        navigateTo(5);
+        startReportGeneration(); // Renders cached report or generates new
+        return;
+    }
+}
+
+// =============================================================================
 // DEBUG PANEL TOGGLE
 // =============================================================================
 
@@ -1032,4 +1104,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setupScreen4();
     setupScreen5();
     setupDebugToggle();
+    setupStepNavigation();
 });
