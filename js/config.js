@@ -12,7 +12,7 @@ export const DEFAULT_API_KEY = ''; // Paste your OpenRouter key here
 
 // The model used for report synthesis (editor-in-chief). Always this model,
 // regardless of what models are available on the user's key.
-export const SYNTHESIS_MODEL = 'anthropic/claude-opus-4.7-20250514';
+export const SYNTHESIS_MODEL = 'anthropic/claude-opus-4.7';
 
 // Preferred model per family for the initial 8-persona board.
 // Each persona gets a different family. Board size defaults to the number
