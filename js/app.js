@@ -15,7 +15,7 @@ import {
     downloadCsv, buildCsvExport,
     safeMarkdown
 } from './report.js';
-import { DEFAULT_API_KEY, SYNTHESIS_MODEL } from './config.js';
+import { SYNTHESIS_MODEL } from './config.js';
 import { sendAllTelemetry } from './telemetry.js';
 import {
     createSession, recordStepEntry, recordStepCompletion,
@@ -40,7 +40,6 @@ const appState = {
     reportMarkdown: '',
     currentScreen: 1,
     session: createSession(),
-    keySource: null, // 'default' or 'user'
 };
 
 const SCREEN_IDS = {
@@ -83,6 +82,7 @@ function navigateTo(screenNum) {
     if (headerStatus) headerStatus.textContent = statusLabels[screenNum] || 'STANDBY';
 
     appState.currentScreen = screenNum;
+    try { sessionStorage.setItem('magi_screen', String(screenNum)); } catch (e) {}
     recordStepEntry(appState.session, screenNum);
     window.scrollTo(0, 0);
 }
@@ -99,22 +99,10 @@ function setupScreen1() {
     const nextBtn = document.getElementById('goto-article-btn');
     const clearBtn = document.getElementById('clear-key-btn');
 
-    // Default key always loads first. Users can override by entering their own.
-    // This prevents stale localStorage keys from blocking the app.
-    const hasDefaultKey = DEFAULT_API_KEY && !DEFAULT_API_KEY.includes('xxxxxxxxxxxx');
-    const savedKey = getApiKey();
-
-    if (hasDefaultKey) {
-        // Always start with the default community key
-        keyInput.value = DEFAULT_API_KEY;
-        appState.keySource = 'default';
-        showStatus(statusDiv, 'USING COMMUNITY KEY // ENTER YOUR OWN KEY FOR UNLIMITED USE', 'info');
-        setTimeout(() => validateBtn.click(), 300);
-    } else if (savedKey) {
-        keyInput.value = savedKey;
-        appState.keySource = 'user';
-        clearBtn.style.display = 'inline-block';
-    }
+    // BYOK: the field always starts empty. The key is held in memory only
+    // and is cleared by a page refresh.
+    keyInput.value = '';
+    clearBtn.style.display = 'none';
 
     toggleBtn.addEventListener('click', () => {
         keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
@@ -122,11 +110,11 @@ function setupScreen1() {
 
     clearBtn.addEventListener('click', () => {
         clearApiKey();
+        appState.apiKey = null;
         keyInput.value = '';
         clearBtn.style.display = 'none';
         nextBtn.style.display = 'none';
-        appState.keySource = null;
-        showStatus(statusDiv, 'API KEY CLEARED FROM BROWSER', 'info');
+        showStatus(statusDiv, 'API KEY CLEARED', 'info');
     });
 
     validateBtn.addEventListener('click', async () => {
@@ -140,13 +128,6 @@ function setupScreen1() {
         validateBtn.disabled = true;
         setApiKey(key);
 
-        // Determine key source
-        if (key === DEFAULT_API_KEY) {
-            appState.keySource = 'default';
-        } else {
-            appState.keySource = 'user';
-        }
-
         try {
             const result = await validateKeyAndFetchModels();
             if (result.valid) {
@@ -154,24 +135,21 @@ function setupScreen1() {
                 appState.availableModels = result.models;
                 appState.modelFamilies = result.families;
 
-                // Set pricing map for cost calculations
                 setPricingMap(result.models);
 
-                // Record in session
-                appState.session.steps[1].key_source = appState.keySource;
+                appState.session.steps[1].key_source = 'user';
                 recordStepCompletion(appState.session, 1);
 
-                const keyLabel = appState.keySource === 'default' ? ' [COMMUNITY KEY]' : '';
                 showStatus(statusDiv,
-                    `CONNECTED${keyLabel} // ${result.models.length} models // ${result.families.length} families: ${result.families.join(', ')}`,
+                    `CONNECTED // ${result.models.length} models // ${result.families.length} families: ${result.families.join(', ')}`,
                     'success'
                 );
                 nextBtn.style.display = 'block';
                 clearBtn.style.display = 'inline-block';
+                resumeAfterKeyValidation();
             } else {
-                // Check for 402 (insufficient credits)
                 if (result.error && result.error.includes('credit')) {
-                    handleCreditExhausted(statusDiv, keyInput, validateBtn);
+                    showStatus(statusDiv, 'INSUFFICIENT CREDITS // ADD CREDITS AT openrouter.ai/credits', 'error');
                 } else {
                     showStatus(statusDiv, `ERROR: ${result.error}`, 'error');
                 }
@@ -184,22 +162,6 @@ function setupScreen1() {
     });
 
     nextBtn.addEventListener('click', () => navigateTo(2));
-}
-
-/**
- * Handle 402 / credit exhaustion. If using default key, prompt for user's own key.
- */
-function handleCreditExhausted(statusDiv, keyInput, validateBtn) {
-    if (appState.keySource === 'default') {
-        showStatus(statusDiv,
-            'COMMUNITY KEY CREDITS EXHAUSTED FOR TODAY // ENTER YOUR OWN OPENROUTER KEY TO CONTINUE',
-            'error'
-        );
-        keyInput.value = '';
-        keyInput.focus();
-    } else {
-        showStatus(statusDiv, 'INSUFFICIENT CREDITS // ADD CREDITS AT openrouter.ai/credits', 'error');
-    }
 }
 
 // =============================================================================
@@ -1101,6 +1063,7 @@ function checkDependencies() {
 
 document.addEventListener('DOMContentLoaded', () => {
     checkDependencies();
+    hydrateAppStateFromStorage();
     setupScreen1();
     setupScreen2();
     setupScreen3();
@@ -1109,3 +1072,30 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDebugToggle();
     setupStepNavigation();
 });
+
+// Pull article/personas/debate/report back into memory on load so a refresh
+// doesn't lose work. The API key itself is not persisted (BYOK), so screen 1
+// always shows an empty key field; the user re-pastes and then jumps back to
+// their last screen via resumeAfterKeyValidation.
+function hydrateAppStateFromStorage() {
+    const saved = loadFromLocalStorage();
+    if (!saved) return;
+    appState.session = saved;
+    appState.articleTitle = saved.article?.title || '';
+    appState.articleText = saved.article?.text || '';
+    appState.personas = saved.personas || [];
+    appState.debateResults = saved.debate_results || [];
+    appState.reportMarkdown = saved.report?.markdown || '';
+}
+
+// After the user re-validates their key on refresh, jump back to the highest
+// screen their hydrated data supports. Falls through to screen 2 when only an
+// article exists, etc.
+function resumeAfterKeyValidation() {
+    const saved = parseInt(sessionStorage.getItem('magi_screen') || '1');
+    if (saved <= 1) return;
+    if (saved >= 5 && appState.debateResults.length) { navigateToStep(5); return; }
+    if (saved >= 4 && appState.personas.length)      { navigateToStep(4); return; }
+    if (saved >= 3 && appState.articleText)          { navigateToStep(3); return; }
+    if (saved >= 2 && appState.articleText)          { navigateToStep(2); return; }
+}

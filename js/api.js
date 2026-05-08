@@ -17,7 +17,7 @@
 // =============================================================================
 
 const BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
+const DEFAULT_TIMEOUT_MS = 240_000; // 4 minutes (Opus synthesis on long context can exceed 2 min)
 
 // Module-level state (like a Python module-level variable)
 let apiKey = null;
@@ -29,53 +29,20 @@ const activeControllers = new Set();
 // API KEY MANAGEMENT
 // =============================================================================
 
-/**
- * Set the API key for all subsequent requests.
- * Also saves to localStorage so it persists across page reloads.
- *
- * localStorage is like a tiny database in the browser - it stores key/value
- * pairs that survive closing and reopening the tab. Think of it like a
- * persistent dict that lives in the browser.
- */
+// BYOK posture: the API key lives only in this module's memory for the
+// lifetime of the tab. It is never written to localStorage or sessionStorage,
+// so a page refresh forces re-entry on screen 1.
+
 export function setApiKey(key) {
     apiKey = key;
-    try {
-        localStorage.setItem('openrouter_api_key', key);
-    } catch (e) {
-        // localStorage might be disabled (private browsing, etc.) - that's fine
-        console.warn('Could not save API key to localStorage:', e);
-    }
 }
 
-/**
- * Clear the API key from memory and localStorage.
- * Used when user clicks "Clear Key" to protect against shared computers.
- */
 export function clearApiKey() {
     apiKey = null;
-    try {
-        localStorage.removeItem('openrouter_api_key');
-    } catch (e) {
-        // localStorage might be unavailable
-    }
 }
 
-/**
- * Get the stored API key (from memory or localStorage).
- * Returns null if none is set.
- */
 export function getApiKey() {
-    if (apiKey) return apiKey;
-    try {
-        const saved = localStorage.getItem('openrouter_api_key');
-        if (saved) {
-            apiKey = saved;
-            return saved;
-        }
-    } catch (e) {
-        // localStorage might be unavailable
-    }
-    return null;
+    return apiKey;
 }
 
 // =============================================================================

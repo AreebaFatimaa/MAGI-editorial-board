@@ -5,14 +5,13 @@
 // Default API key, synthesis model, board model families, and endpoints.
 // =============================================================================
 
-// Default OpenRouter API key — shared community key.
-// Users can use this until daily credits are exhausted, then they'll be
-// prompted to enter their own key. This is intentionally public.
-export const DEFAULT_API_KEY = ''; // Paste your OpenRouter key here
+// Bring-your-own-key. Every user pastes their own OpenRouter key on
+// screen 1; the key is held in memory only and never persisted.
+export const DEFAULT_API_KEY = '';
 
 // The model used for report synthesis (editor-in-chief). Always this model,
 // regardless of what models are available on the user's key.
-export const SYNTHESIS_MODEL = 'anthropic/claude-opus-4.7';
+export const SYNTHESIS_MODEL = 'anthropic/claude-sonnet-4.6';
 
 // Preferred model per family for the initial 8-persona board.
 // Each persona gets a different family. Board size defaults to the number
@@ -24,7 +23,7 @@ export const BOARD_MODEL_FAMILIES = [
     { family: 'amazon',    model: 'amazon/nova-pro-v1' },
     { family: 'qwen',      model: 'qwen/qwen-2.5-72b-instruct' },
     { family: 'nvidia',    model: 'nvidia/llama-3.1-nemotron-70b-instruct' },
-    { family: 'anthropic', model: 'anthropic/claude-sonnet-4-20250514' },
+    { family: 'anthropic', model: 'anthropic/claude-sonnet-4.6' },
     { family: 'google',    model: 'google/gemini-2.5-pro' },
 ];
 
