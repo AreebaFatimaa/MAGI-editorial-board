@@ -8,11 +8,11 @@
 // Default OpenRouter API key — shared community key.
 // Users can use this until daily credits are exhausted, then they'll be
 // prompted to enter their own key. This is intentionally public.
-export const DEFAULT_API_KEY = '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';
+export const DEFAULT_API_KEY = ''; // Paste your OpenRouter key here
 
 // The model used for report synthesis (editor-in-chief). Always this model,
 // regardless of what models are available on the user's key.
-export const SYNTHESIS_MODEL = 'anthropic/claude-sonnet-4-20250514';
+export const SYNTHESIS_MODEL = 'anthropic/claude-opus-4.7-20250514';
 
 // Preferred model per family for the initial 8-persona board.
 // Each persona gets a different family. Board size defaults to the number

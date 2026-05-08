@@ -99,18 +99,21 @@ function setupScreen1() {
     const nextBtn = document.getElementById('goto-article-btn');
     const clearBtn = document.getElementById('clear-key-btn');
 
-    // Check for saved user key first, then fall back to default
+    // Default key always loads first. Users can override by entering their own.
+    // This prevents stale localStorage keys from blocking the app.
+    const hasDefaultKey = DEFAULT_API_KEY && !DEFAULT_API_KEY.includes('xxxxxxxxxxxx');
     const savedKey = getApiKey();
-    if (savedKey) {
-        keyInput.value = savedKey;
-        appState.keySource = 'user';
-        clearBtn.style.display = 'inline-block';
-    } else if (DEFAULT_API_KEY && DEFAULT_API_KEY !== 'sk-or-v1-xxxxxxxxxxxx') {
+
+    if (hasDefaultKey) {
+        // Always start with the default community key
         keyInput.value = DEFAULT_API_KEY;
         appState.keySource = 'default';
         showStatus(statusDiv, 'USING COMMUNITY KEY // ENTER YOUR OWN KEY FOR UNLIMITED USE', 'info');
-        // Auto-validate the default key
         setTimeout(() => validateBtn.click(), 300);
+    } else if (savedKey) {
+        keyInput.value = savedKey;
+        appState.keySource = 'user';
+        clearBtn.style.display = 'inline-block';
     }
 
     toggleBtn.addEventListener('click', () => {

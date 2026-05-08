@@ -212,6 +212,21 @@ export async function validateKeyAndFetchModels() {
         const families = [...new Set(chatModels.map(m => m.id.split('/')[0]))].sort();
 
         activeControllers.delete(controller);
+
+        // The /models endpoint is public and doesn't validate the key.
+        // Do a quick auth check with a tiny real API call.
+        try {
+            const authCheck = await fetch(`${BASE_URL}/auth/key`, {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+            });
+            if (!authCheck.ok) {
+                const body = await authCheck.json().catch(() => ({}));
+                return { valid: false, models: [], families: [], error: parseApiError(authCheck.status, body) };
+            }
+        } catch (authErr) {
+            // If /auth/key doesn't exist, fall through — key will be tested on first real call
+        }
+
         return { valid: true, models: chatModels, families, error: null };
     } catch (err) {
         activeControllers.delete(controller);
