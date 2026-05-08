@@ -151,8 +151,11 @@ List the article's major claims and evidence status:
 
 function buildSynthesisPrompt(articleTitle, articleText, debateResults) {
     const personaResponses = debateResults.map((r, i) => {
-        return `--- PERSONA ${i + 1}: ${r.persona.role} (${r.persona.stance}) via ${r.persona.model} ---
-${r.response}`;
+        const role = r.persona?.role ?? `Unknown role (persona ${i + 1})`;
+        const stance = r.persona?.stance ?? 'UNKNOWN';
+        const model = r.persona?.model ?? 'unknown model';
+        return `--- PERSONA ${i + 1}: ${role} (${stance}) via ${model} ---
+${r.response ?? '[no response]'}`;
     }).join('\n\n');
 
     const systemPrompt = `You are the editor-in-chief synthesizing an editorial board review.

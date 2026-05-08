@@ -614,6 +614,7 @@ async function startDebate() {
                 }));
                 appState.session.debate_results = appState.debateResults.map((r, i) => ({
                     persona_index: i,
+                    persona: r.persona,
                     response: r.response,
                     call_meta: callMetas[i],
                 }));
@@ -811,6 +812,8 @@ async function startReportGeneration() {
         return;
     }
 
+    // Reset loading panel so a retry visibly clears any prior error UI
+    loadingDiv.textContent = 'SYNTHESIZING REPORT...';
     loadingDiv.style.display = 'block';
     contentDiv.style.display = 'none';
     actionsDiv.style.display = 'none';
