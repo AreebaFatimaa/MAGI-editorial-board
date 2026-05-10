@@ -13,6 +13,8 @@ I made this because it pisses me off how some newsrooms cover global conflict, p
 3. **Board** — AI analyzes the article and recommends 3–8 editorial personas with diverse stances and model assignments. You can edit roles, stances, and models before proceeding. Of course the bigger the board the longer it takes, so choose your board wisely. You can add or remove personas, assign different roles to different LLM families, diversify as much as possible and figure out what works best!
 4. **Debate** — Each persona evaluates the article sequentially via streaming, referencing and challenging previous speakers by name. It simulates a chat.
 5. **Report** — A final synthesis produces a structured editorial board report with verdict, framing assessment, evidence audit, fault lines, and dissenting opinions. This is a gentle guideline, some friendly suggestions. Not meant to replace human oversight. 
+6. **Claude Skill** - I started working on this board with a skill file I worked on with Claude, editorial-board.md, which is present in this repository. 
+**Note:** The skill file was first only meant for my own use-case and to collect data on my multiple runs, it was later used to write the frontend for this tool. 
 
 ## What It Evaluates
 
